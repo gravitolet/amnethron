@@ -101,39 +101,49 @@ namespace Configs {
                 if (!trimmed.contains("=")) continue;
                 auto eqIdx = trimmed.indexOf("=");
                 QString key = trimmed.left(eqIdx).trimmed();
+                QString normalizedKey = key.toLower();
                 QString value = trimmed.mid(eqIdx + 1).trimmed();
                 
-                if (key == "PrivateKey") private_key = value;
-                if (key == "Address") address = value.replace(" ", "").split(",");
-                if (key == "MTU") mtu = value.toInt();
-                if (key == "PublicKey") peer->public_key = value;
-                if (key == "PresharedKey") peer->pre_shared_key = value;
-                if (key == "PersistentKeepalive") peer->persistent_keepalive = value.toInt();
-                if (key == "Endpoint") {
-                    QStringList parts = value.split(":");
-                    if (parts.size() >= 2) {
-                        peer->address = parts[0].trimmed();
-                        peer->port = parts.last().trimmed().toInt();
-                        server = peer->address;
-                        server_port = peer->port;
+                if (normalizedKey == "privatekey") private_key = value;
+                if (normalizedKey == "address") address = value.replace(" ", "").split(",");
+                if (normalizedKey == "mtu") mtu = value.toInt();
+                if (normalizedKey == "publickey") peer->public_key = value;
+                if (normalizedKey == "presharedkey") peer->pre_shared_key = value;
+                if (normalizedKey == "persistentkeepalive") peer->persistent_keepalive = value.toInt();
+                if (normalizedKey == "endpoint") {
+                    auto endpoint = QUrl::fromUserInput(value);
+                    if (!endpoint.host().isEmpty() && endpoint.port() > 0) {
+                        peer->address = endpoint.host();
+                        peer->port = endpoint.port();
+                    } else {
+                        auto portSeparator = value.lastIndexOf(":");
+                        if (portSeparator > 0) {
+                            peer->address = value.left(portSeparator).trimmed();
+                            peer->port = value.mid(portSeparator + 1).trimmed().toInt();
+                            if (peer->address.startsWith("[") && peer->address.endsWith("]")) {
+                                peer->address = peer->address.mid(1, peer->address.length() - 2);
+                            }
+                        }
                     }
+                    server = peer->address;
+                    server_port = peer->port;
                 }
-                if (key == "Jc") jc = value.toInt(), enable_amnezia = true;
-                if (key == "Jmin") jmin = value.toInt(), enable_amnezia = true;
-                if (key == "Jmax") jmax = value.toInt(), enable_amnezia = true;
-                if (key == "S1") s1 = value.toInt(), enable_amnezia = true;
-                if (key == "S2") s2 = value.toInt(), enable_amnezia = true;
-                if (key == "S3") s3 = value.toInt(), enable_amnezia = true;
-                if (key == "S4") s4 = value.toInt(), enable_amnezia = true;
-                if (key == "H1") h1 = value, enable_amnezia = true;
-                if (key == "H2") h2 = value, enable_amnezia = true;
-                if (key == "H3") h3 = value, enable_amnezia = true;
-                if (key == "H4") h4 = value, enable_amnezia = true;
-                if (key == "I1") i1 = value, enable_amnezia = true;
-                if (key == "I2") i2 = value, enable_amnezia = true;
-                if (key == "I3") i3 = value, enable_amnezia = true;
-                if (key == "I4") i4 = value, enable_amnezia = true;
-                if (key == "I5") i5 = value, enable_amnezia = true;
+                if (normalizedKey == "jc") jc = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "jmin") jmin = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "jmax") jmax = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "s1") s1 = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "s2") s2 = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "s3") s3 = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "s4") s4 = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "h1") h1 = value, enable_amnezia = true;
+                if (normalizedKey == "h2") h2 = value, enable_amnezia = true;
+                if (normalizedKey == "h3") h3 = value, enable_amnezia = true;
+                if (normalizedKey == "h4") h4 = value, enable_amnezia = true;
+                if (normalizedKey == "i1") i1 = value, enable_amnezia = true;
+                if (normalizedKey == "i2") i2 = value, enable_amnezia = true;
+                if (normalizedKey == "i3") i3 = value, enable_amnezia = true;
+                if (normalizedKey == "i4") i4 = value, enable_amnezia = true;
+                if (normalizedKey == "i5") i5 = value, enable_amnezia = true;
             }
             return !private_key.isEmpty() && !peer->public_key.isEmpty();
         }
@@ -310,7 +320,7 @@ namespace Configs {
 
     QString wireguard::DisplayType()
     {
-        return "WireGuard";
+        return enable_amnezia ? "Amnezia-WG" : "WireGuard";
     }
 
     bool wireguard::IsEndpoint()

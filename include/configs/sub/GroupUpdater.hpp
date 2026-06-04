@@ -26,6 +26,8 @@ namespace Subscription {
 
         void updateClash(const QString &str);
 
+        void updateAmneziaVpnLink(const QString &str);
+
         void updateWireguardFileConfig(const QString &str);
 
         void updateSIP008(const QString &str);

@@ -278,6 +278,7 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
         LOAD_TYPE("trusttunnel")
         LOAD_TYPE("anytls")
         LOAD_TYPE("shadowtls")
+        ui->type->addItem("Amnezia-WG", "amneziawg");
         LOAD_TYPE("wireguard")
         LOAD_TYPE("tailscale")
         LOAD_TYPE("ssh")
@@ -310,7 +311,8 @@ DialogEditProfile::~DialogEditProfile() {
 
 void DialogEditProfile::typeSelected(const QString &newType) {
     QString customType;
-    type = newType;
+    const bool amneziaWireGuard = newType == "amneziawg";
+    type = amneziaWireGuard ? "wireguard" : newType;
     bool validType = true;
 
     if (type == "http") {
@@ -430,6 +432,9 @@ void DialogEditProfile::typeSelected(const QString &newType) {
     if (newEnt) {
         this->ent = Configs::dataManager->profilesRepo->NewProfile(type);
         this->ent->gid = groupId;
+        if (amneziaWireGuard) {
+            this->ent->Wireguard()->enable_amnezia = true;
+        }
     }
 
     // hide some widget

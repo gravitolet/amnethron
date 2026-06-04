@@ -6,7 +6,12 @@
 
 #include <QInputDialog>
 #include <QUrlQuery>
+#include <QUrl>
+#include <QByteArray>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 
 #include "include/configs/common/utils.h"
 #include "include/database/GroupsRepo.h"
@@ -145,10 +150,284 @@ namespace Subscription {
         return ent;
     }
 
+    QString jsonScalarToString(const QJsonValue &value) {
+        if (value.isString()) return value.toString();
+        if (value.isDouble()) {
+            double d = value.toDouble();
+            qint64 i = static_cast<qint64>(d);
+            if (d == static_cast<double>(i)) return QString::number(i);
+            return QString::number(d, 'g', 15);
+        }
+        if (value.isBool()) return value.toBool() ? "true" : "false";
+        return {};
+    }
+
+    QJsonValue pickJsonValue(const QList<QJsonObject> &objects, const QStringList &keys) {
+        for (const auto &object : objects) {
+            if (object.isEmpty()) continue;
+            for (const auto &key : keys) {
+                auto value = object.value(key);
+                if (!value.isUndefined() && !value.isNull()) return value;
+            }
+        }
+        return {};
+    }
+
+    QString pickString(const QList<QJsonObject> &objects, const QStringList &keys) {
+        return jsonScalarToString(pickJsonValue(objects, keys)).trimmed();
+    }
+
+    int pickInt(const QList<QJsonObject> &objects, const QStringList &keys, int defaultValue = 0) {
+        auto value = pickJsonValue(objects, keys);
+        if (value.isDouble()) return value.toInt(defaultValue);
+        bool ok = false;
+        auto result = jsonScalarToString(value).toInt(&ok);
+        return ok ? result : defaultValue;
+    }
+
+    QStringList pickStringList(const QList<QJsonObject> &objects, const QStringList &keys) {
+        auto value = pickJsonValue(objects, keys);
+        if (value.isArray()) {
+            QStringList result;
+            for (const auto &item : value.toArray()) {
+                auto text = jsonScalarToString(item).trimmed();
+                if (!text.isEmpty()) result << text;
+            }
+            return result;
+        }
+
+        auto text = jsonScalarToString(value).trimmed();
+        if (text.isEmpty()) return {};
+        if (text.contains(",")) return SplitAndTrim(text, ",", false);
+        return {text};
+    }
+
+    QJsonObject jsonObjectFromValue(const QJsonValue &value) {
+        if (value.isObject()) return value.toObject();
+        auto text = value.toString().trimmed();
+        if (text.isEmpty()) return {};
+
+        QJsonParseError error;
+        auto doc = QJsonDocument::fromJson(text.toUtf8(), &error);
+        if (error.error != QJsonParseError::NoError || !doc.isObject()) return {};
+        return doc.object();
+    }
+
+    QByteArray decodeAmneziaVpnPayload(const QString &str) {
+        auto payload = str.trimmed();
+        if (payload.startsWith("vpn://", Qt::CaseInsensitive)) {
+            payload = payload.mid(QStringLiteral("vpn://").size());
+        }
+        auto decoded = DecodeB64IfValid(payload, QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+        if (decoded.isEmpty()) return {};
+
+        auto uncompressed = qUncompress(decoded);
+        return uncompressed.isEmpty() ? decoded : uncompressed;
+    }
+
+    QJsonObject protocolConfigFromAmneziaContainer(const QJsonObject &container) {
+        auto awg = container.value("awg").toObject();
+        if (!awg.isEmpty()) return awg;
+
+        auto wireguard = container.value("wireguard").toObject();
+        if (!wireguard.isEmpty()) return wireguard;
+
+        for (auto it = container.constBegin(); it != container.constEnd(); ++it) {
+            if (!it.value().isObject()) continue;
+            auto object = it.value().toObject();
+            if (object.contains("last_config") || object.contains("client_priv_key") || object.contains("config")) {
+                return object;
+            }
+        }
+        return {};
+    }
+
+    QString bracketIpv6EndpointHost(const QString &host) {
+        if (host.contains(":") && !host.startsWith("[") && !host.endsWith("]")) {
+            return "[" + host + "]";
+        }
+        return host;
+    }
+
+    QString makeWireGuardConfigFromAmneziaJson(
+        const QJsonObject &root,
+        const QJsonObject &protocolConfig,
+        const QJsonObject &clientConfig
+    ) {
+        const QList<QJsonObject> clientFirst{clientConfig, protocolConfig, root};
+        const QList<QJsonObject> protocolFirst{protocolConfig, clientConfig, root};
+
+        QString privateKey = pickString(clientFirst, {"client_priv_key", "private_key", "PrivateKey"});
+        QString address = pickString(clientFirst, {"client_ip", "address", "Address"});
+        QString serverPublicKey = pickString(clientFirst, {"server_pub_key", "public_key", "PublicKey"});
+        QString presharedKey = pickString(clientFirst, {"psk_key", "pre_shared_key", "PresharedKey", "PreSharedKey"});
+        QString mtu = pickString(clientFirst, {"mtu", "MTU"});
+        QString keepAlive = pickString(clientFirst, {"persistent_keep_alive", "persistent_keepalive", "PersistentKeepalive"});
+
+        QString host = pickString(clientFirst, {"hostName", "host_name", "server", "endpoint_host"});
+        QString port = pickString(clientFirst, {"port", "server_port"});
+        auto endpoint = pickString(clientFirst, {"Endpoint", "endpoint"});
+        if ((!endpoint.isEmpty()) && (host.isEmpty() || port.isEmpty())) {
+            auto endpointUrl = QUrl::fromUserInput(endpoint);
+            if (!endpointUrl.host().isEmpty()) host = endpointUrl.host();
+            if (endpointUrl.port() > 0) port = QString::number(endpointUrl.port());
+        }
+        if (host.isEmpty() || port.isEmpty()) return {};
+
+        QStringList lines;
+        auto appendLine = [&lines](const QString &key, const QString &value) {
+            if (!value.isEmpty()) lines << QString("%1 = %2").arg(key, value);
+        };
+
+        lines << "[Interface]";
+        appendLine("PrivateKey", privateKey);
+        appendLine("Address", address);
+
+        QStringList dns;
+        auto dns1 = pickString(clientFirst, {"dns1"});
+        auto dns2 = pickString(clientFirst, {"dns2"});
+        if (!dns1.isEmpty()) dns << dns1;
+        if (!dns2.isEmpty()) dns << dns2;
+        if (!dns.isEmpty()) appendLine("DNS", dns.join(", "));
+
+        appendLine("MTU", mtu);
+        appendLine("Jc", pickString(protocolFirst, {"Jc", "jc"}));
+        appendLine("Jmin", pickString(protocolFirst, {"Jmin", "jmin"}));
+        appendLine("Jmax", pickString(protocolFirst, {"Jmax", "jmax"}));
+        appendLine("S1", pickString(protocolFirst, {"S1", "s1"}));
+        appendLine("S2", pickString(protocolFirst, {"S2", "s2"}));
+        appendLine("S3", pickString(protocolFirst, {"S3", "s3"}));
+        appendLine("S4", pickString(protocolFirst, {"S4", "s4"}));
+        appendLine("H1", pickString(protocolFirst, {"H1", "h1"}));
+        appendLine("H2", pickString(protocolFirst, {"H2", "h2"}));
+        appendLine("H3", pickString(protocolFirst, {"H3", "h3"}));
+        appendLine("H4", pickString(protocolFirst, {"H4", "h4"}));
+        appendLine("I1", pickString(protocolFirst, {"I1", "i1"}));
+        appendLine("I2", pickString(protocolFirst, {"I2", "i2"}));
+        appendLine("I3", pickString(protocolFirst, {"I3", "i3"}));
+        appendLine("I4", pickString(protocolFirst, {"I4", "i4"}));
+        appendLine("I5", pickString(protocolFirst, {"I5", "i5"}));
+
+        lines << "" << "[Peer]";
+        appendLine("PublicKey", serverPublicKey);
+        appendLine("PresharedKey", presharedKey);
+        appendLine("Endpoint", QString("%1:%2").arg(bracketIpv6EndpointHost(host), port));
+        appendLine("PersistentKeepalive", keepAlive);
+
+        auto allowedIps = pickStringList(clientFirst, {"allowed_ips", "AllowedIPs"});
+        if (allowedIps.isEmpty()) allowedIps = {"0.0.0.0/0", "::/0"};
+        appendLine("AllowedIPs", allowedIps.join(", "));
+
+        return lines.join("\n");
+    }
+
+    void applyAmneziaOptions(
+        Configs::wireguard *wireguard,
+        const QJsonObject &root,
+        const QJsonObject &protocolConfig,
+        const QJsonObject &clientConfig
+    ) {
+        const QList<QJsonObject> objects{clientConfig, protocolConfig, root};
+        wireguard->enable_amnezia = true;
+
+        auto setInt = [&objects](int &target, const QStringList &keys) {
+            int value = pickInt(objects, keys, target);
+            if (value > 0) target = value;
+        };
+        auto setString = [&objects](QString &target, const QStringList &keys) {
+            auto value = pickString(objects, keys);
+            if (!value.isEmpty()) target = value;
+        };
+
+        setInt(wireguard->jc, {"Jc", "jc"});
+        setInt(wireguard->jmin, {"Jmin", "jmin"});
+        setInt(wireguard->jmax, {"Jmax", "jmax"});
+        setInt(wireguard->s1, {"S1", "s1"});
+        setInt(wireguard->s2, {"S2", "s2"});
+        setInt(wireguard->s3, {"S3", "s3"});
+        setInt(wireguard->s4, {"S4", "s4"});
+        setString(wireguard->h1, {"H1", "h1"});
+        setString(wireguard->h2, {"H2", "h2"});
+        setString(wireguard->h3, {"H3", "h3"});
+        setString(wireguard->h4, {"H4", "h4"});
+        setString(wireguard->i1, {"I1", "i1"});
+        setString(wireguard->i2, {"I2", "i2"});
+        setString(wireguard->i3, {"I3", "i3"});
+        setString(wireguard->i4, {"I4", "i4"});
+        setString(wireguard->i5, {"I5", "i5"});
+    }
+
+    std::shared_ptr<Configs::Profile> makeProfileFromAmneziaWireGuard(
+        const QJsonObject &root,
+        const QJsonObject &protocolConfig,
+        const QJsonObject &clientConfig
+    ) {
+        auto ent = Configs::ProfilesRepo::NewProfile("wireguard");
+        auto wireguard = ent->Wireguard();
+        if (!wireguard) return nullptr;
+
+        bool ok = false;
+        auto nativeConfig = clientConfig.value("config").toString();
+        if (nativeConfig.contains("[Interface]") && nativeConfig.contains("[Peer]")) {
+            ok = wireguard->ParseFromLink(nativeConfig);
+        }
+
+        if (!ok) {
+            auto generatedConfig = makeWireGuardConfigFromAmneziaJson(root, protocolConfig, clientConfig);
+            if (generatedConfig.isEmpty()) return nullptr;
+            ok = wireguard->ParseFromLink(generatedConfig);
+        }
+        if (!ok) return nullptr;
+
+        applyAmneziaOptions(wireguard, root, protocolConfig, clientConfig);
+
+        const QList<QJsonObject> nameObjects{root, clientConfig, protocolConfig};
+        auto name = pickString(nameObjects, {"name", "description", "displayName", "tag"});
+        if (!name.isEmpty()) wireguard->name = name;
+
+        return ent;
+    }
+
+    std::shared_ptr<Configs::Profile> makeProfileFromAmneziaConfig(const QJsonObject &root) {
+        auto containers = root.value("containers").toArray();
+        for (const auto &item : containers) {
+            if (!item.isObject()) continue;
+            auto container = item.toObject();
+            auto containerName = container.value("container").toString().toLower();
+            auto protocolConfig = protocolConfigFromAmneziaContainer(container);
+            if (protocolConfig.isEmpty()) continue;
+            if (!containerName.contains("awg") && !container.contains("awg")) continue;
+
+            auto clientConfig = jsonObjectFromValue(protocolConfig.value("last_config"));
+            if (clientConfig.isEmpty()) clientConfig = protocolConfig;
+
+            if (auto ent = makeProfileFromAmneziaWireGuard(root, protocolConfig, clientConfig); ent != nullptr) {
+                return ent;
+            }
+        }
+
+        auto protocolConfig = protocolConfigFromAmneziaContainer(root);
+        auto clientConfig = jsonObjectFromValue(protocolConfig.value("last_config"));
+        if (clientConfig.isEmpty()) clientConfig = protocolConfig;
+        if (!protocolConfig.isEmpty()) {
+            return makeProfileFromAmneziaWireGuard(root, protocolConfig, clientConfig);
+        }
+
+        return nullptr;
+    }
+
     void RawUpdater::update(const QString &str, bool needParse, bool isBase64Decoded) {
+        const QString trimmedInput = str.trimmed();
+
+        if (trimmedInput.startsWith("vpn://", Qt::CaseInsensitive)) {
+            MW_show_log(">>>>>>>> " + QObject::tr("Detected Amnezia VPN key..."));
+            updateAmneziaVpnLink(trimmedInput);
+            return;
+        }
+
         // Base64 encoded subscription
         if (!isBase64Decoded) {
-            if (auto str2 = DecodeB64IfValid(str); !str2.isEmpty()) {
+            if (auto str2 = DecodeB64IfValid(trimmedInput); !str2.isEmpty()) {
                 update(str2, true, true);
                 return;
             }
@@ -160,6 +439,13 @@ namespace Subscription {
         QJsonParseError error;
         auto doc = QJsonDocument::fromJson(str.toUtf8(), &error);
         if (error.error == QJsonParseError::NoError) {
+            if (doc.isObject()) {
+                if (auto e = makeProfileFromAmneziaConfig(doc.object()); e != nullptr) {
+                    updated_order += e;
+                    return;
+                }
+            }
+
             // Xray (checked first since its outbounds are tagged with
             // "protocol", which lets us cleanly disambiguate from sing-box
             // configs that share the "outbounds" wrapper).
@@ -639,6 +925,42 @@ namespace Subscription {
                 MessageBoxWarning("YAML Exception", ex.what());
             });
         }
+    }
+
+    void RawUpdater::updateAmneziaVpnLink(const QString& str)
+    {
+        auto payload = decodeAmneziaVpnPayload(str);
+        if (payload.isEmpty()) {
+            MW_show_log("<<<<<<<< " + QObject::tr("Amnezia VPN key decoding failed."));
+            return;
+        }
+
+        QJsonParseError error;
+        auto doc = QJsonDocument::fromJson(payload, &error);
+        if (error.error == QJsonParseError::NoError && doc.isObject()) {
+            if (auto ent = makeProfileFromAmneziaConfig(doc.object()); ent != nullptr) {
+                updated_order += ent;
+                MW_show_log("<<<<<<<< " + QObject::tr("Imported Amnezia VPN key as Amnezia-WG profile."));
+            } else {
+                MW_show_log("<<<<<<<< " + QObject::tr("Amnezia VPN key decoded, but no supported Amnezia-WG container was found."));
+            }
+            return;
+        }
+
+        auto decodedText = QString::fromUtf8(payload);
+        if (decodedText.trimmed().startsWith("[Interface]") && decodedText.contains("[Peer]")) {
+            auto ent = Configs::ProfilesRepo::NewProfile("wireguard");
+            auto ok = ent->Wireguard()->ParseFromLink(decodedText);
+            if (!ok) {
+                MW_show_log("<<<<<<<< " + QObject::tr("Amnezia VPN key decoded, but WireGuard config parsing failed."));
+                return;
+            }
+            updated_order += ent;
+            MW_show_log("<<<<<<<< " + QObject::tr("Imported Amnezia VPN key as WireGuard config."));
+            return;
+        }
+
+        MW_show_log("<<<<<<<< " + QObject::tr("Amnezia VPN key is not a supported JSON or WireGuard config."));
     }
 
     void RawUpdater::updateWireguardFileConfig(const QString& str)
