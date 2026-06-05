@@ -1228,36 +1228,46 @@ namespace Configs {
             });
         }
 
+        auto buildBinaryRuleSet = [](const QString &tag, const QString &url) {
+            auto localPath = QApplication::applicationDirPath() + "/rulesets/" + tag + ".srs";
+            if (QFileInfo::exists(localPath)) {
+                return QJsonObject{
+                    {"type", "local"},
+                    {"tag", tag},
+                    {"format", "binary"},
+                    {"path", localPath},
+                };
+            }
+
+            return QJsonObject{
+                {"type", "remote"},
+                {"tag", tag},
+                {"format", "binary"},
+                {"url", url},
+            };
+        };
+
         // rulesets
         auto ruleSetArray = QJsonArray();
         for (const auto &item: routeDeps->neededRuleSets) {
             if(auto url = QUrl(item); url.isValid() && url.fileName().contains(".srs")) {
-                ruleSetArray += QJsonObject{
-                            {"type", "remote"},
-                            {"tag", get_rule_set_name(item)},
-                            {"format", "binary"},
-                            {"url", item},
-                        };
+                ruleSetArray += buildBinaryRuleSet(get_rule_set_name(item), item);
             }
             else
                 if(ruleSetMap.contains(item.toStdString())) {
-                    ruleSetArray += QJsonObject{
-                                {"type", "remote"},
-                                {"tag", item},
-                                {"format", "binary"},
-                                {"url", get_jsdelivr_link(QString::fromStdString(ruleSetMap.at(item.toStdString())))},
-                            };
+                    ruleSetArray += buildBinaryRuleSet(
+                        item,
+                        get_jsdelivr_link(QString::fromStdString(ruleSetMap.at(item.toStdString())))
+                    );
                 }
         }
 
         // add block
         if (Configs::dataManager->settingsRepo->adblock_enable) {
-            ruleSetArray += QJsonObject{
-                        {"type", "remote"},
-                        {"tag", "throne-adblocksingbox"},
-                        {"format", "binary"},
-                        {"url", get_jsdelivr_link("https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblocksingbox.srs")},
-                    };
+            ruleSetArray += buildBinaryRuleSet(
+                "throne-adblocksingbox",
+                get_jsdelivr_link("https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblocksingbox.srs")
+            );
         }
 
         // map ingress socks inbounds to their corresponding outbounds.
