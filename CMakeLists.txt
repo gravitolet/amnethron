@@ -414,4 +414,64 @@ target_link_libraries(Throne PRIVATE
         ${PLATFORM_LIBRARIES}
 )
 
+if (WIN32)
+    set(AMNETHRON_WINDOWS_RUNTIME_DIR "${CMAKE_SOURCE_DIR}/deployment/windows-amd64")
+    if (EXISTS "${AMNETHRON_WINDOWS_RUNTIME_DIR}/ThroneCore.exe")
+        add_custom_command(TARGET Throne POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:Throne>"
+                "${AMNETHRON_WINDOWS_RUNTIME_DIR}/Throne.exe"
+        )
+        if (MSVC)
+            add_custom_command(TARGET Throne POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "$<TARGET_PDB_FILE:Throne>"
+                    "${AMNETHRON_WINDOWS_RUNTIME_DIR}/Throne.pdb"
+            )
+        endif ()
+
+        set(AMNETHRON_WINDOWS_RUNTIME_FILES
+                Core.exe
+                ThroneCore.exe
+                updater.exe
+                libcronet.dll
+                concrt140.dll
+                D3Dcompiler_47.dll
+                icuuc.dll
+                msvcp140.dll
+                msvcp140_1.dll
+                msvcp140_2.dll
+                msvcp140_atomic_wait.dll
+                msvcp140_codecvt_ids.dll
+                opengl32sw.dll
+                Qt6Core.dll
+                Qt6Gui.dll
+                Qt6Network.dll
+                Qt6Svg.dll
+                Qt6Widgets.dll
+                vccorlib140.dll
+                vcruntime140.dll
+                vcruntime140_1.dll
+                vcruntime140_threads.dll
+        )
+        foreach (runtime_file IN LISTS AMNETHRON_WINDOWS_RUNTIME_FILES)
+            add_custom_command(TARGET Throne POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${AMNETHRON_WINDOWS_RUNTIME_DIR}/${runtime_file}"
+                    "$<TARGET_FILE_DIR:Throne>/${runtime_file}"
+            )
+        endforeach ()
+
+        foreach (runtime_dir generic iconengines imageformats networkinformation platforms rulesets styles tls translations)
+            if (EXISTS "${AMNETHRON_WINDOWS_RUNTIME_DIR}/${runtime_dir}")
+                add_custom_command(TARGET Throne POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                        "${AMNETHRON_WINDOWS_RUNTIME_DIR}/${runtime_dir}"
+                        "$<TARGET_FILE_DIR:Throne>/${runtime_dir}"
+                )
+            endif ()
+        endforeach ()
+    endif ()
+endif ()
+
 qt_finalize_executable(Throne)
