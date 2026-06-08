@@ -1,5 +1,6 @@
 #pragma once
 #include "include/configs/common/Outbound.h"
+#include <QStringList>
 
 namespace Configs
 {

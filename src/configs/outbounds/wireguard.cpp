@@ -36,6 +36,35 @@ namespace Configs {
         return allowedIps;
     }
 
+    static QStringList filterAllowedIpsForLocalAddresses(const QStringList& allowedIps, const QStringList& addresses)
+    {
+        const auto defaults = defaultAllowedIpsForLocalAddresses(addresses);
+        const bool allowIPv4 = defaults.contains("0.0.0.0/0");
+        const bool allowIPv6 = defaults.contains("::/0");
+        if (allowIPv4 && allowIPv6) return allowedIps;
+
+        QStringList filtered;
+        for (auto item : allowedIps) {
+            item = item.trimmed();
+            if (item.isEmpty()) continue;
+
+            auto address = item;
+            const auto slash = address.indexOf("/");
+            if (slash >= 0) address = address.left(slash);
+
+            if (IsIpAddressV4(address)) {
+                if (allowIPv4) filtered.append(item);
+                continue;
+            }
+            if (IsIpAddressV6(address)) {
+                if (allowIPv6) filtered.append(item);
+                continue;
+            }
+            filtered.append(item);
+        }
+        return filtered.isEmpty() ? defaults : filtered;
+    }
+
     bool Peer::ParseFromLink(const QString& link)
     {
         auto url = QUrl(link);
@@ -179,6 +208,10 @@ namespace Configs {
                 if (normalizedKey == "i4") i4 = value, enable_amnezia = true;
                 if (normalizedKey == "i5") i5 = value, enable_amnezia = true;
             }
+            FixAddress();
+            if (!peer->allowed_ips.isEmpty()) {
+                peer->allowed_ips = filterAllowedIpsForLocalAddresses(peer->allowed_ips, address);
+            }
             return !private_key.isEmpty() && !peer->public_key.isEmpty();
         }
         
@@ -220,6 +253,9 @@ namespace Configs {
         if (query.hasQueryItem("i4")) i4 = query.queryItemValue("i4"), enable_amnezia = true;
         if (query.hasQueryItem("i5")) i5 = query.queryItemValue("i5"), enable_amnezia = true;
         FixAddress();
+        if (!peer->allowed_ips.isEmpty()) {
+            peer->allowed_ips = filterAllowedIpsForLocalAddresses(peer->allowed_ips, address);
+        }
 
         return !(private_key.isEmpty() || peer->public_key.isEmpty() || server.isEmpty());
     }
@@ -326,9 +362,10 @@ namespace Configs {
 
         auto peerObj = peer->Build().object;
         if (!peerObj.isEmpty()) {
-            if (!peerObj.contains("allowed_ips")) {
-                peerObj["allowed_ips"] = QListStr2QJsonArray(defaultAllowedIpsForLocalAddresses(address));
-            }
+            const auto allowedIps = peer->allowed_ips.isEmpty()
+                ? defaultAllowedIpsForLocalAddresses(address)
+                : filterAllowedIpsForLocalAddresses(peer->allowed_ips, address);
+            peerObj["allowed_ips"] = QListStr2QJsonArray(allowedIps);
             object["peers"] = QJsonArray({peerObj});
         }
         return {object, ""};

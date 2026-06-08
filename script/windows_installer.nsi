@@ -1,5 +1,18 @@
-Name "Throne"
+!ifndef APP_VERSION
+  !define APP_VERSION "0.1.0"
+!endif
+!ifndef APP_VERSION_RESOURCE
+  !define APP_VERSION_RESOURCE "0.1.0.0"
+!endif
+
+Name "Throne ${APP_VERSION}"
+Caption "Throne ${APP_VERSION} Setup"
 OutFile "ThroneSetup.exe"
+VIProductVersion "${APP_VERSION_RESOURCE}"
+VIAddVersionKey "ProductName" "Throne"
+VIAddVersionKey "ProductVersion" "${APP_VERSION}"
+VIAddVersionKey "FileVersion" "${APP_VERSION}"
+VIAddVersionKey "FileDescription" "Throne Installer"
 
 ; 1. NEVER ask for UAC on launch
 RequestExecutionLevel user 
@@ -235,7 +248,8 @@ Section "Install"
   CreateShortcut "$SMPROGRAMS\Throne.lnk" "$INSTDIR\Throne.exe" "" "$INSTDIR\Throne.exe" 0
 
   WriteRegStr SHCTX "Software\Throne" "InstallPath" "$INSTDIR"
-  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "DisplayName" "Throne"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "DisplayName" "Throne ${APP_VERSION}"
+  WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "UninstallString" "$INSTDIR\uninstall.exe"
   WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "InstallLocation" "$INSTDIR"
   WriteRegDWORD SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "NoModify" 1

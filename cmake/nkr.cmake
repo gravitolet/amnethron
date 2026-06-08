@@ -1,5 +1,10 @@
 # Release
-set(NKR_VERSION "$ENV{INPUT_VERSION}")
+if (NOT DEFINED NKR_VERSION OR NKR_VERSION STREQUAL "")
+    set(NKR_VERSION "$ENV{INPUT_VERSION}")
+endif ()
+if (NKR_VERSION STREQUAL "")
+    set(NKR_VERSION "0.1.0")
+endif ()
 add_compile_definitions(NKR_VERSION=\"${NKR_VERSION}\")
 
 # Debug
