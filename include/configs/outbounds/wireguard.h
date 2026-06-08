@@ -12,6 +12,7 @@ namespace Configs
         QString pre_shared_key;
         QList<int> reserved;
         int persistent_keepalive = 0;
+        QStringList allowed_ips;
 
         // baseConfig overrides
         bool ParseFromLink(const QString& link) override;

@@ -249,6 +249,24 @@ namespace Subscription {
         return host;
     }
 
+    QStringList defaultWireGuardAllowedIps(const QString &address) {
+        bool hasIPv4 = false;
+        bool hasIPv6 = false;
+        for (auto item : address.split(",", Qt::SkipEmptyParts)) {
+            item = item.trimmed();
+            const auto slash = item.indexOf("/");
+            if (slash >= 0) item = item.left(slash);
+            if (IsIpAddressV4(item)) hasIPv4 = true;
+            if (IsIpAddressV6(item)) hasIPv6 = true;
+        }
+
+        QStringList allowedIps;
+        if (hasIPv4) allowedIps << "0.0.0.0/0";
+        if (hasIPv6) allowedIps << "::/0";
+        if (allowedIps.isEmpty()) allowedIps << "0.0.0.0/0" << "::/0";
+        return allowedIps;
+    }
+
     QString makeWireGuardConfigFromAmneziaJson(
         const QJsonObject &root,
         const QJsonObject &protocolConfig,
@@ -315,7 +333,7 @@ namespace Subscription {
         appendLine("PersistentKeepalive", keepAlive);
 
         auto allowedIps = pickStringList(clientFirst, {"allowed_ips", "AllowedIPs"});
-        if (allowedIps.isEmpty()) allowedIps = {"0.0.0.0/0", "::/0"};
+        if (allowedIps.isEmpty()) allowedIps = defaultWireGuardAllowedIps(address);
         appendLine("AllowedIPs", allowedIps.join(", "));
 
         return lines.join("\n");

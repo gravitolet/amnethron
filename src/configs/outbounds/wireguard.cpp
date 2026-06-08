@@ -7,6 +7,35 @@
 #include "include/configs/common/utils.h"
 
 namespace Configs {
+    static QStringList splitCommaSeparatedList(QString value)
+    {
+        QStringList result;
+        for (auto item : value.split(",", Qt::SkipEmptyParts)) {
+            item = item.trimmed();
+            if (!item.isEmpty()) result.append(item);
+        }
+        return result;
+    }
+
+    static QStringList defaultAllowedIpsForLocalAddresses(const QStringList& addresses)
+    {
+        bool hasIPv4 = false;
+        bool hasIPv6 = false;
+        for (auto item : addresses) {
+            item = item.trimmed();
+            const auto slash = item.indexOf("/");
+            if (slash >= 0) item = item.left(slash);
+            if (IsIpAddressV4(item)) hasIPv4 = true;
+            if (IsIpAddressV6(item)) hasIPv6 = true;
+        }
+
+        QStringList allowedIps;
+        if (hasIPv4) allowedIps.append("0.0.0.0/0");
+        if (hasIPv6) allowedIps.append("::/0");
+        if (allowedIps.isEmpty()) allowedIps = {"0.0.0.0/0", "::/0"};
+        return allowedIps;
+    }
+
     bool Peer::ParseFromLink(const QString& link)
     {
         auto url = QUrl(link);
@@ -28,6 +57,7 @@ namespace Configs {
             }
         }
         if (query.hasQueryItem("persistent_keepalive_interval")) persistent_keepalive = query.queryItemValue("persistent_keepalive_interval").toInt();
+        if (query.hasQueryItem("allowed_ips")) allowed_ips = splitCommaSeparatedList(query.queryItemValue("allowed_ips", QUrl::FullyDecoded));
         
         return true;
     }
@@ -43,6 +73,7 @@ namespace Configs {
             reserved = QJsonArray2QListInt(object["reserved"].toArray());
         }
         if (object.contains("persistent_keepalive_interval")) persistent_keepalive = object["persistent_keepalive_interval"].toInt();
+        if (object.contains("allowed_ips")) allowed_ips = QJsonArray2QListString(object["allowed_ips"].toArray());
         return true;
     }
 
@@ -59,6 +90,7 @@ namespace Configs {
             query.addQueryItem("reserved", reservedStr.join("-"));
         }
         if (persistent_keepalive > 0) query.addQueryItem("persistent_keepalive_interval", QString::number(persistent_keepalive));
+        if (!allowed_ips.isEmpty()) query.addQueryItem("allowed_ips", allowed_ips.join(","));
         return query.toString();
     }
 
@@ -71,6 +103,7 @@ namespace Configs {
         if (!pre_shared_key.isEmpty()) object["pre_shared_key"] = pre_shared_key;
         if (!reserved.isEmpty()) object["reserved"] = QListInt2QJsonArray(reserved);
         if (persistent_keepalive > 0) object["persistent_keepalive_interval"] = persistent_keepalive;
+        if (!allowed_ips.isEmpty()) object["allowed_ips"] = QListStr2QJsonArray(allowed_ips);
         return object;
     }
 
@@ -83,7 +116,7 @@ namespace Configs {
         if (!pre_shared_key.isEmpty()) object["pre_shared_key"] = pre_shared_key;
         if (!reserved.isEmpty()) object["reserved"] = QListInt2QJsonArray(reserved);
         if (persistent_keepalive > 0) object["persistent_keepalive_interval"] = persistent_keepalive;
-        object["allowed_ips"] = QListStr2QJsonArray({"0.0.0.0/0", "::/0"});
+        if (!allowed_ips.isEmpty()) object["allowed_ips"] = QListStr2QJsonArray(allowed_ips);
         return {object, ""};
     }
 
@@ -109,6 +142,7 @@ namespace Configs {
                 if (normalizedKey == "mtu") mtu = value.toInt();
                 if (normalizedKey == "publickey") peer->public_key = value;
                 if (normalizedKey == "presharedkey") peer->pre_shared_key = value;
+                if (normalizedKey == "allowedips") peer->allowed_ips = splitCommaSeparatedList(value);
                 if (normalizedKey == "persistentkeepalive") peer->persistent_keepalive = value.toInt();
                 if (normalizedKey == "endpoint") {
                     auto endpoint = QUrl::fromUserInput(value);
@@ -292,6 +326,9 @@ namespace Configs {
 
         auto peerObj = peer->Build().object;
         if (!peerObj.isEmpty()) {
+            if (!peerObj.contains("allowed_ips")) {
+                peerObj["allowed_ips"] = QListStr2QJsonArray(defaultAllowedIpsForLocalAddresses(address));
+            }
             object["peers"] = QJsonArray({peerObj});
         }
         return {object, ""};
