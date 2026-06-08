@@ -1,9 +1,11 @@
 param(
-    [string]$BuildDir = 'build-local',
+    [string]$BuildDir = (Join-Path $env:LOCALAPPDATA 'CodexBuild\AmneThron-win64'),
     [string]$Configuration = 'RelWithDebInfo',
     [ValidateSet('Major', 'Minor', 'Patch', 'Build')]
     [string]$Increment = 'Patch',
-    [string]$MakensisPath = ''
+    [string]$MakensisPath = '',
+    [switch]$Clean,
+    [switch]$StopExisting
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,14 +35,56 @@ if (-not $MakensisPath) {
     }
 }
 
-$buildPath = Join-Path $repoRoot $BuildDir
+if ([System.IO.Path]::IsPathRooted($BuildDir)) {
+    $buildPath = $BuildDir
+} else {
+    $buildPath = Join-Path $repoRoot $BuildDir
+}
+$qtCMakePrefix = Join-Path $repoRoot '.qt\6.10.1\msvc2022_64\lib\cmake'
+$opensslRoot = Join-Path $repoRoot '.tools\openssl-x64\openssl'
+$opensslInclude = Join-Path $opensslRoot 'include'
+$opensslCryptoLib = Join-Path $opensslRoot 'lib\libcrypto.lib'
+$opensslSslLib = Join-Path $opensslRoot 'lib\libssl.lib'
+$srsListUrl = 'https://raw.githubusercontent.com/throneproj/routeprofiles/rule-set/srslist.h'
+$srsListPath = Join-Path $buildPath 'srslist.h'
+$srsListTempPath = Join-Path $buildPath 'srslist.h.tmp'
 $cmake = 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 $vsDevCmd = 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat'
 if (-not (Test-Path $cmake)) { throw "CMake not found: $cmake" }
 if (-not (Test-Path $vsDevCmd)) { throw "VsDevCmd not found: $vsDevCmd" }
+if (-not (Test-Path $qtCMakePrefix)) { throw "Qt CMake prefix not found: $qtCMakePrefix" }
+if (-not (Test-Path $opensslCryptoLib)) { throw "OpenSSL crypto lib not found: $opensslCryptoLib" }
+if (-not (Test-Path $opensslSslLib)) { throw "OpenSSL ssl lib not found: $opensslSslLib" }
+
+if ($Clean -and (Test-Path -LiteralPath $buildPath)) {
+    $resolvedBuildPath = (Resolve-Path -LiteralPath $buildPath).Path
+    if ($resolvedBuildPath -notlike (Join-Path $env:LOCALAPPDATA 'CodexBuild*')) {
+        throw "Refusing to clean unexpected build directory: $resolvedBuildPath"
+    }
+    Remove-Item -LiteralPath $resolvedBuildPath -Recurse -Force
+}
+
+if ($StopExisting) {
+    $deployDir = Join-Path $repoRoot 'deployment\windows-amd64'
+    Get-Process Throne,ThroneCore -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -like "$deployDir*" } |
+        Stop-Process -Force
+}
+
+New-Item -ItemType Directory -Path $buildPath -Force | Out-Null
+& curl.exe -fL --retry 3 --connect-timeout 20 -o $srsListTempPath $srsListUrl
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $srsListTempPath)) {
+    throw "Failed to download srslist.h from $srsListUrl"
+}
+if ((Test-Path -LiteralPath $srsListPath) -and
+    ((Get-FileHash -Algorithm SHA256 -LiteralPath $srsListPath).Hash -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $srsListTempPath).Hash)) {
+    Remove-Item -LiteralPath $srsListTempPath -Force
+} else {
+    Move-Item -LiteralPath $srsListTempPath -Destination $srsListPath -Force
+}
 
 $env:INPUT_VERSION = $version
-$buildCmd = "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 && `"$cmake`" -S `"$repoRoot`" -B `"$buildPath`" -DCMAKE_BUILD_TYPE=$Configuration && `"$cmake`" --build `"$buildPath`" --target Throne --parallel 4"
+$buildCmd = "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 && `"$cmake`" -G `"Ninja`" -S `"$repoRoot`" -B `"$buildPath`" -DCMAKE_BUILD_TYPE=$Configuration -DCMAKE_PREFIX_PATH=`"$qtCMakePrefix`" -DOPENSSL_ROOT_DIR=`"$opensslRoot`" -DOPENSSL_INCLUDE_DIR=`"$opensslInclude`" -DOPENSSL_CRYPTO_LIBRARY=`"$opensslCryptoLib`" -DOPENSSL_SSL_LIBRARY=`"$opensslSslLib`" && `"$cmake`" --build `"$buildPath`" --target Throne --parallel 4"
 Push-Location $repoRoot
 try {
     & cmd.exe /c $buildCmd
@@ -50,16 +94,20 @@ try {
     Copy-Item -LiteralPath (Join-Path $buildPath 'Throne.exe') -Destination (Join-Path $deployDir 'Throne.exe') -Force
     Copy-Item -LiteralPath (Join-Path $buildPath 'Throne.pdb') -Destination (Join-Path $deployDir 'Throne.pdb') -Force -ErrorAction SilentlyContinue
 
-    & $MakensisPath "/DAPP_VERSION=$version" "/DAPP_VERSION_RESOURCE=$versionResource" (Join-Path $repoRoot 'script\windows_installer.nsi')
+    & $MakensisPath "/DAPP_VERSION=$version" "/DAPP_VERSION_RESOURCE=$versionResource" "/DPROJECT_ROOT=$repoRoot" (Join-Path $repoRoot 'script\windows_installer.nsi')
     if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
 
     Set-Content -LiteralPath $versionFile -Value $version -NoNewline
 
     $installerDir = Join-Path $repoRoot 'deployment\installer'
     New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Destination (Join-Path $installerDir 'ThroneSetup.exe') -Force
+    $versionedInstaller = Join-Path $installerDir "ThroneSetup-$version.exe"
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Destination $versionedInstaller -Force
+    Remove-Item -LiteralPath (Join-Path $installerDir 'ThroneSetup.exe') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Force -ErrorAction SilentlyContinue
 } finally {
     Pop-Location
 }
 
 Write-Output "Built installer version $version"
+Write-Output $versionedInstaller

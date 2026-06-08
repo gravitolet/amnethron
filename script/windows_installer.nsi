@@ -4,10 +4,13 @@
 !ifndef APP_VERSION_RESOURCE
   !define APP_VERSION_RESOURCE "0.1.0.0"
 !endif
+!ifndef PROJECT_ROOT
+  !define PROJECT_ROOT ".."
+!endif
 
 Name "Throne ${APP_VERSION}"
 Caption "Throne ${APP_VERSION} Setup"
-OutFile "ThroneSetup.exe"
+OutFile "${PROJECT_ROOT}\ThroneSetup.exe"
 VIProductVersion "${APP_VERSION_RESOURCE}"
 VIAddVersionKey "ProductName" "Throne"
 VIAddVersionKey "ProductVersion" "${APP_VERSION}"
@@ -27,13 +30,13 @@ SetCompressorDictSize 64
 !include WinVer.nsh
 !include x64.nsh
 
-!define MUI_ICON "res\Throne.ico"
+!define MUI_ICON "${PROJECT_ROOT}\res\Throne.ico"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Throne Installer"
 !define MUI_WELCOMEPAGE_TEXT "This wizard will guide you through the installation of Throne."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Throne.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch Throne"
-!addplugindir .\script\
+!addplugindir "${PROJECT_ROOT}\script\"
 
 ; This is the Windows constant used to draw the UAC Shield on a button
 !ifndef BCM_SETSHIELD
@@ -71,7 +74,7 @@ Page custom InstallModePageCreate InstallModePageLeave
 !insertmacro MUI_LANGUAGE "English"
 
 UninstallText "This will uninstall Throne. Do you wish to continue?"
-UninstallIcon "res\ThroneDel.ico"
+UninstallIcon "${PROJECT_ROOT}\res\ThroneDel.ico"
 
 ; =====================================
 ; INIT & SEAMLESS RESTART LOGIC
@@ -220,29 +223,13 @@ Section "Install"
 
   !insertmacro AbortOnRunningApp "$INSTDIR\Throne.exe"
 
-  ${If} ${IsNativeAMD64}
-    ${If} ${AtLeastWaaS} 1809
-      File /oname=libcronet.dll "deployment\windows-amd64\libcronet.dll"
-      File /oname=ThroneCore.exe "deployment\windows-amd64\ThroneCore.exe"
-      File /oname=Throne.exe "deployment\windows-amd64\Throne.exe"
-      File /oname=updater.exe "deployment\windows-amd64\updater.exe"
-    ${Else}
-      File /oname=ThroneCore.exe "deployment\windowslegacy-amd64\ThroneCore.exe"
-      File /oname=Throne.exe "deployment\windowslegacy-amd64\Throne.exe"
-      File /oname=updater.exe "deployment\windowslegacy-amd64\updater.exe"
-    ${EndIf}
-  ${ElseIf} ${IsNativeARM64}
-    File /oname=libcronet.dll "deployment\windows-arm64\libcronet.dll"
-    File /oname=ThroneCore.exe "deployment\windows-arm64\ThroneCore.exe"
-    File /oname=Throne.exe "deployment\windows-arm64\Throne.exe"
-    File /oname=updater.exe "deployment\windows-arm64\updater.exe"
-  ${ElseIf} ${IsNativeIA32}
-    File /oname=ThroneCore.exe "deployment\windowslegacy-386\ThroneCore.exe"
-    File /oname=Throne.exe "deployment\windowslegacy-386\Throne.exe"
-    File /oname=updater.exe "deployment\windowslegacy-386\updater.exe"
-  ${Else}
-    Abort "Unsupported CPU architecture!"
+  ${IfNot} ${IsNativeAMD64}
+    Abort "This installer supports Windows x64 only."
   ${EndIf}
+  File /oname=libcronet.dll "${PROJECT_ROOT}\deployment\windows-amd64\libcronet.dll"
+  File /oname=ThroneCore.exe "${PROJECT_ROOT}\deployment\windows-amd64\ThroneCore.exe"
+  File /oname=Throne.exe "${PROJECT_ROOT}\deployment\windows-amd64\Throne.exe"
+  File /oname=updater.exe "${PROJECT_ROOT}\deployment\windows-amd64\updater.exe"
 
   CreateShortcut "$DESKTOP\Throne.lnk" "$INSTDIR\Throne.exe"
   CreateShortcut "$SMPROGRAMS\Throne.lnk" "$INSTDIR\Throne.exe" "" "$INSTDIR\Throne.exe" 0
