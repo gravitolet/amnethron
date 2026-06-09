@@ -72,8 +72,15 @@ if ($StopExisting) {
 }
 
 New-Item -ItemType Directory -Path $buildPath -Force | Out-Null
-& curl.exe -fL --retry 3 --connect-timeout 20 -o $srsListTempPath $srsListUrl
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $srsListTempPath)) {
+$oldErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    & curl.exe -fsSL --retry 3 --connect-timeout 20 -o $srsListTempPath $srsListUrl
+    $curlExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+}
+if ($curlExitCode -ne 0 -or -not (Test-Path -LiteralPath $srsListTempPath)) {
     throw "Failed to download srslist.h from $srsListUrl"
 }
 if ((Test-Path -LiteralPath $srsListPath) -and
@@ -87,15 +94,29 @@ $env:INPUT_VERSION = $version
 $buildCmd = "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 && `"$cmake`" -G `"Ninja`" -S `"$repoRoot`" -B `"$buildPath`" -DCMAKE_BUILD_TYPE=$Configuration -DCMAKE_PREFIX_PATH=`"$qtCMakePrefix`" -DOPENSSL_ROOT_DIR=`"$opensslRoot`" -DOPENSSL_INCLUDE_DIR=`"$opensslInclude`" -DOPENSSL_CRYPTO_LIBRARY=`"$opensslCryptoLib`" -DOPENSSL_SSL_LIBRARY=`"$opensslSslLib`" && `"$cmake`" --build `"$buildPath`" --target Throne --parallel 4"
 Push-Location $repoRoot
 try {
-    & cmd.exe /c $buildCmd
-    if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE" }
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & cmd.exe /c $buildCmd
+        $buildExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+    if ($buildExitCode -ne 0) { throw "CMake build failed with exit code $buildExitCode" }
 
     $deployDir = Join-Path $repoRoot 'deployment\windows-amd64'
     Copy-Item -LiteralPath (Join-Path $buildPath 'Throne.exe') -Destination (Join-Path $deployDir 'Throne.exe') -Force
     Copy-Item -LiteralPath (Join-Path $buildPath 'Throne.pdb') -Destination (Join-Path $deployDir 'Throne.pdb') -Force -ErrorAction SilentlyContinue
 
-    & $MakensisPath "/DAPP_VERSION=$version" "/DAPP_VERSION_RESOURCE=$versionResource" "/DPROJECT_ROOT=$repoRoot" (Join-Path $repoRoot 'script\windows_installer.nsi')
-    if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE" }
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $MakensisPath "/DAPP_VERSION=$version" "/DAPP_VERSION_RESOURCE=$versionResource" "/DPROJECT_ROOT=$repoRoot" (Join-Path $repoRoot 'script\windows_installer.nsi')
+        $makensisExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+    if ($makensisExitCode -ne 0) { throw "makensis failed with exit code $makensisExitCode" }
 
     Set-Content -LiteralPath $versionFile -Value $version -NoNewline
 

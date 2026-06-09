@@ -1,5 +1,6 @@
 #include "include/configs/generate.h"
 #include "include/api/RPC.h"
+#include "include/configs/rule_set_catalog.hpp"
 #include "include/global/Configs.hpp"
 
 #include <QApplication>

@@ -1,6 +1,7 @@
 #include "include/ui/setting/RouteItem.h"
 #include "include/database/ProfilesRepo.h"
 #include "include/database/GroupsRepo.h"
+#include "include/configs/rule_set_catalog.hpp"
 #include "include/global/Configs.hpp"
 
 #include <QComboBox>

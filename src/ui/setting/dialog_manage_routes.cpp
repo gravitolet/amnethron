@@ -3,6 +3,7 @@
 #include <QClipboard>
 
 #include "3rdparty/qv2ray/v2/ui/widgets/editors/w_JsonEditor.hpp"
+#include "include/configs/rule_set_catalog.hpp"
 #include "include/global/GuiUtils.hpp"
 
 #include <QFile>

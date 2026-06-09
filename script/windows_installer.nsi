@@ -230,6 +230,9 @@ Section "Install"
   File /oname=ThroneCore.exe "${PROJECT_ROOT}\deployment\windows-amd64\ThroneCore.exe"
   File /oname=Throne.exe "${PROJECT_ROOT}\deployment\windows-amd64\Throne.exe"
   File /oname=updater.exe "${PROJECT_ROOT}\deployment\windows-amd64\updater.exe"
+  SetOutPath "$INSTDIR\rulesets"
+  File "${PROJECT_ROOT}\deployment\windows-amd64\rulesets\*.srs"
+  SetOutPath "$INSTDIR"
 
   CreateShortcut "$DESKTOP\Throne.lnk" "$INSTDIR\Throne.exe"
   CreateShortcut "$SMPROGRAMS\Throne.lnk" "$INSTDIR\Throne.exe" "" "$INSTDIR\Throne.exe" 0
