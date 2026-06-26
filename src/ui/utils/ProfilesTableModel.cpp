@@ -19,7 +19,7 @@ int ProfilesTableModel::rowCount(const QModelIndex &parent) const {
 
 int ProfilesTableModel::columnCount(const QModelIndex &parent) const {
     if (parent.isValid()) return 0;
-    return 5;
+    return 6;
 }
 
 Qt::ItemFlags ProfilesTableModel::flags(const QModelIndex &index) const {
@@ -81,7 +81,7 @@ void ProfilesTableModel::evictOne() const {
 
 QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_profileIds.size()
-        || index.column() < 0 || index.column() >= 5) {
+        || index.column() < 0 || index.column() >= columnCount()) {
         return {};
     }
     const int profileId = m_profileIds[index.row()];
@@ -105,6 +105,7 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
         case 2: return profile->outbound ? profile->outbound->name : QString();
         case 3: return profile->DisplayTestResult();
         case 4: return profile->DisplayTraffic();
+        case 5: return Configs::Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         default: return {};
         }
     }
@@ -128,6 +129,7 @@ QVariant ProfilesTableModel::headerData(int section, Qt::Orientation orientation
         case 2: return tr("Name");
         case 3: return tr("Test Result");
         case 4: return tr("Traffic");
+        case 5: return tr("Score");
         default: return {};
         }
     }

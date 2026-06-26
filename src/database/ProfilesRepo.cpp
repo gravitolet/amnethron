@@ -2,13 +2,102 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QByteArray>
 #include <map>
 
 #include "include/database/GroupsRepo.h"
 #include "include/ui/mainwindow.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <wincrypt.h>
+#endif
+
 
 namespace Configs {
+    namespace {
+        constexpr auto kEncryptedOutboundPrefix = "enc:v1:dpapi:";
+
+        bool isEncryptedOutboundJson(const QString& value) {
+            return value.startsWith(QString::fromLatin1(kEncryptedOutboundPrefix));
+        }
+
+#ifdef Q_OS_WIN
+        DATA_BLOB makeBlob(QByteArray& bytes) {
+            DATA_BLOB blob;
+            blob.cbData = static_cast<DWORD>(bytes.size());
+            blob.pbData = reinterpret_cast<BYTE*>(bytes.data());
+            return blob;
+        }
+
+        DATA_BLOB makeConstBlob(const QByteArray& bytes) {
+            DATA_BLOB blob;
+            blob.cbData = static_cast<DWORD>(bytes.size());
+            blob.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(bytes.constData()));
+            return blob;
+        }
+
+        QByteArray profileEncryptionEntropy() {
+            return QByteArrayLiteral("AmneThron:local-profile-outbound-json:v1");
+        }
+
+        bool encryptLocalProfileJson(const QString& plainText, QString& encryptedText) {
+            QByteArray plain = plainText.toUtf8();
+            QByteArray entropyBytes = profileEncryptionEntropy();
+            DATA_BLOB input = makeBlob(plain);
+            DATA_BLOB entropy = makeBlob(entropyBytes);
+            DATA_BLOB output{};
+
+            if (!CryptProtectData(&input, L"AmneThron local profile", &entropy, nullptr, nullptr,
+                                  CRYPTPROTECT_UI_FORBIDDEN, &output)) {
+                return false;
+            }
+
+            QByteArray cipher(reinterpret_cast<const char*>(output.pbData), static_cast<int>(output.cbData));
+            LocalFree(output.pbData);
+            encryptedText = QString::fromLatin1(kEncryptedOutboundPrefix)
+                + QString::fromLatin1(cipher.toBase64(QByteArray::OmitTrailingEquals));
+            return true;
+        }
+
+        bool decryptLocalProfileJson(const QString& encryptedText, QString& plainText) {
+            if (!isEncryptedOutboundJson(encryptedText)) {
+                plainText = encryptedText;
+                return true;
+            }
+
+            const QString payload = encryptedText.mid(QString::fromLatin1(kEncryptedOutboundPrefix).size());
+            QByteArray cipher = QByteArray::fromBase64(payload.toLatin1(), QByteArray::OmitTrailingEquals);
+            if (cipher.isEmpty()) return false;
+
+            QByteArray entropyBytes = profileEncryptionEntropy();
+            DATA_BLOB input = makeConstBlob(cipher);
+            DATA_BLOB entropy = makeBlob(entropyBytes);
+            DATA_BLOB output{};
+
+            if (!CryptUnprotectData(&input, nullptr, &entropy, nullptr, nullptr,
+                                    CRYPTPROTECT_UI_FORBIDDEN, &output)) {
+                return false;
+            }
+
+            QByteArray plain(reinterpret_cast<const char*>(output.pbData), static_cast<int>(output.cbData));
+            LocalFree(output.pbData);
+            plainText = QString::fromUtf8(plain);
+            return true;
+        }
+#else
+        bool encryptLocalProfileJson(const QString& plainText, QString& encryptedText) {
+            encryptedText = plainText;
+            return false;
+        }
+
+        bool decryptLocalProfileJson(const QString& encryptedText, QString& plainText) {
+            plainText = encryptedText;
+            return !isEncryptedOutboundJson(encryptedText);
+        }
+#endif
+    }
+
     ProfilesRepo::ProfilesRepo(Database& database) : db(database) {
         createTables();
     }
@@ -25,6 +114,7 @@ namespace Configs {
                 name TEXT,
                 gid INTEGER NOT NULL DEFAULT 0,
                 latency INTEGER NOT NULL DEFAULT 0,
+                auto_switch_score INTEGER NOT NULL DEFAULT 0,
                 dl_speed TEXT,
                 ul_speed TEXT,
                 test_country TEXT,
@@ -39,6 +129,91 @@ namespace Configs {
         )");
 
         db.exec("CREATE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name)");
+
+        bool hasAutoSwitchScore = false;
+        auto columns = db.query("PRAGMA table_info(profiles)");
+        if (columns) {
+            while (columns->executeStep()) {
+                if (QString::fromStdString(columns->getColumn(1).getText()) == "auto_switch_score") {
+                    hasAutoSwitchScore = true;
+                    break;
+                }
+            }
+        }
+        if (!hasAutoSwitchScore) {
+            db.exec("ALTER TABLE profiles ADD COLUMN auto_switch_score INTEGER NOT NULL DEFAULT 0");
+        }
+        db.exec(
+            "UPDATE profiles SET auto_switch_score = 0 "
+            "WHERE auto_switch_score < ? OR auto_switch_score > ?",
+            Profile::MinAutoSwitchScore,
+            Profile::MaxAutoSwitchScore);
+    }
+
+    bool ProfilesRepo::shouldEncryptOutboundJson(int gid) const {
+        auto groupQuery = db.query("SELECT COALESCE(url, '') FROM groups WHERE id = ?", gid);
+        if (!groupQuery || !groupQuery->executeStep()) {
+            return true;
+        }
+        return QString::fromStdString(groupQuery->getColumn(0).getText()).trimmed().isEmpty();
+    }
+
+    QString ProfilesRepo::outboundJsonForStorage(int gid, const QString& outboundJson) const {
+        if (outboundJson.isEmpty() || isEncryptedOutboundJson(outboundJson)) return outboundJson;
+        if (!shouldEncryptOutboundJson(gid)) return outboundJson;
+
+        QString encrypted;
+        if (encryptLocalProfileJson(outboundJson, encrypted)) {
+            return encrypted;
+        }
+        return outboundJson;
+    }
+
+    QString ProfilesRepo::outboundJsonFromStorage(const QString& storedOutboundJson) const {
+        QString decrypted;
+        if (decryptLocalProfileJson(storedOutboundJson, decrypted)) {
+            return decrypted;
+        }
+        return storedOutboundJson;
+    }
+
+    void ProfilesRepo::NormalizeLocalProfileStorageEncryption() const {
+        QList<std::pair<int, QString>> updates;
+        {
+            auto query = db.query(R"(
+                SELECT p.id, p.gid, COALESCE(g.url, ''), p.outbound_json
+                FROM profiles p
+                LEFT JOIN groups g ON g.id = p.gid
+            )");
+            if (!query) return;
+
+            while (query->executeStep()) {
+                const int profileId = query->getColumn(0).getInt();
+                const bool localProfile = QString::fromStdString(query->getColumn(2).getText()).trimmed().isEmpty();
+                const QString storedOutboundJson = QString::fromStdString(query->getColumn(3).getText());
+                if (storedOutboundJson.isEmpty()) continue;
+
+                const bool encrypted = isEncryptedOutboundJson(storedOutboundJson);
+                QString normalizedOutboundJson;
+                if (localProfile && !encrypted) {
+                    normalizedOutboundJson = outboundJsonForStorage(query->getColumn(1).getInt(), storedOutboundJson);
+                } else if (!localProfile && encrypted) {
+                    normalizedOutboundJson = outboundJsonFromStorage(storedOutboundJson);
+                } else {
+                    continue;
+                }
+
+                if (normalizedOutboundJson.isEmpty() || normalizedOutboundJson == storedOutboundJson) continue;
+                updates.append({profileId, normalizedOutboundJson});
+            }
+        }
+
+        for (const auto& [profileId, normalizedOutboundJson] : updates) {
+            db.exec(
+                "UPDATE profiles SET outbound_json = ?, updated_at = strftime('%s', 'now') WHERE id = ?",
+                normalizedOutboundJson.toStdString(),
+                profileId);
+        }
     }
 
     QJsonObject ProfilesRepo::profileToJson(const Profile* profile) const {
@@ -50,6 +225,7 @@ namespace Configs {
         json["id"] = profile->id;
         json["gid"] = profile->gid;
         json["latency"] = profile->latency;
+        json["auto_switch_score"] = Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         json["dl_speed"] = profile->dl_speed;
         json["ul_speed"] = profile->ul_speed;
         json["test_country"] = profile->test_country;
@@ -75,6 +251,7 @@ namespace Configs {
         profile->id = json["id"].toInt();
         profile->gid = json["gid"].toInt();
         profile->latency = json["latency"].toInt();
+        profile->auto_switch_score = Profile::NormalizeAutoSwitchScore(json["auto_switch_score"].toInt());
         profile->dl_speed = json["dl_speed"].toString();
         profile->ul_speed = json["ul_speed"].toString();
         profile->test_country = json["test_country"].toString();
@@ -160,8 +337,10 @@ namespace Configs {
         if (profile->outbound) {
             QJsonDocument outboundDoc(profile->outbound->ExportToJson());
             outboundJson = QString::fromUtf8(outboundDoc.toJson(QJsonDocument::Compact));
+            outboundJson = outboundJsonForStorage(profile->gid, outboundJson);
         }
         QString name = profile->outbound ? profile->outbound->name : QString();
+        const int autoSwitchScore = Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         const long long traffic_dl = static_cast<long long>(profile->traffic_downlink);
         const long long traffic_up = static_cast<long long>(profile->traffic_uplink);
         
@@ -171,7 +350,7 @@ namespace Configs {
         if (exists) {
             db.exec(R"(
                 UPDATE profiles 
-                SET type = ?, name = ?, gid = ?, latency = ?, dl_speed = ?, ul_speed = ?, 
+                SET type = ?, name = ?, gid = ?, latency = ?, auto_switch_score = ?, dl_speed = ?, ul_speed = ?,
                     test_country = ?, ip_out = ?, outbound_json = ?,
                     traffic_dl = ?, traffic_up = ?, updated_at = strftime('%s', 'now')
                 WHERE id = ?
@@ -180,6 +359,7 @@ namespace Configs {
                 name.toStdString(),
                 profile->gid,
                 profile->latency,
+                autoSwitchScore,
                 profile->dl_speed.toStdString(),
                 profile->ul_speed.toStdString(),
                 profile->test_country.toStdString(),
@@ -192,15 +372,16 @@ namespace Configs {
         } else {
             db.exec(R"(
                 INSERT INTO profiles 
-                (id, type, name, gid, latency, dl_speed, ul_speed, test_country, 
+                (id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country,
                 ip_out, outbound_json, traffic_dl, traffic_up)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             )",
                 id,
                 profile->type.toStdString(),
                 name.toStdString(),
                 profile->gid,
                 profile->latency,
+                autoSwitchScore,
                 profile->dl_speed.toStdString(),
                 profile->ul_speed.toStdString(),
                 profile->test_country.toStdString(),
@@ -216,6 +397,7 @@ namespace Configs {
         QString outboundJson;
         if (profile->outbound) {
             outboundJson = QString::fromUtf8(QJsonDocument(profile->outbound->ExportToJson()).toJson(QJsonDocument::Compact));
+            outboundJson = outboundJsonForStorage(gid, outboundJson);
         }
         QString name = profile->outbound ? profile->outbound->name : QString();
         ProfileInsertRow row;
@@ -224,6 +406,7 @@ namespace Configs {
         row.name = name.toStdString();
         row.gid = gid;
         row.latency = profile->latency;
+        row.auto_switch_score = Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         row.dl_speed = profile->dl_speed.toStdString();
         row.ul_speed = profile->ul_speed.toStdString();
         row.test_country = profile->test_country.toStdString();
@@ -241,26 +424,28 @@ namespace Configs {
         json["name"] = QString::fromStdString(stmt.getColumn(2).getText());
         json["gid"] = stmt.getColumn(3).getInt();
         json["latency"] = stmt.getColumn(4).getInt();
-        json["dl_speed"] = QString::fromStdString(stmt.getColumn(5).getText());
-        json["ul_speed"] = QString::fromStdString(stmt.getColumn(6).getText());
-        json["test_country"] = QString::fromStdString(stmt.getColumn(7).getText());
-        json["ip_out"] = QString::fromStdString(stmt.getColumn(8).getText());
+        json["auto_switch_score"] = stmt.getColumn(5).getInt();
+        json["dl_speed"] = QString::fromStdString(stmt.getColumn(6).getText());
+        json["ul_speed"] = QString::fromStdString(stmt.getColumn(7).getText());
+        json["test_country"] = QString::fromStdString(stmt.getColumn(8).getText());
+        json["ip_out"] = QString::fromStdString(stmt.getColumn(9).getText());
         
-        QString outboundJsonStr = QString::fromStdString(stmt.getColumn(9).getText());
+        QString outboundJsonStr = QString::fromStdString(stmt.getColumn(10).getText());
+        outboundJsonStr = outboundJsonFromStorage(outboundJsonStr);
         QJsonDocument outboundDoc = QJsonDocument::fromJson(outboundJsonStr.toUtf8());
         if (!outboundDoc.isNull() && outboundDoc.isObject()) {
             json["outbound"] = outboundDoc.object();
         }
         
-        json["traffic_dl"] = static_cast<qint64>(stmt.getColumn(10).getInt64());
-        json["traffic_up"] = static_cast<qint64>(stmt.getColumn(11).getInt64());
+        json["traffic_dl"] = static_cast<qint64>(stmt.getColumn(11).getInt64());
+        json["traffic_up"] = static_cast<qint64>(stmt.getColumn(12).getInt64());
         
         return profileFromJson(json);
     }
 
     std::shared_ptr<Profile> ProfilesRepo::loadFromDatabase(int id) const {
         auto query = db.query(R"(
-            SELECT id, type, name, gid, latency, dl_speed, ul_speed, test_country, 
+            SELECT id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country,
                    ip_out, outbound_json, traffic_dl, traffic_up
             FROM profiles WHERE id = ?
         )", id);
@@ -330,6 +515,7 @@ namespace Configs {
         int newId = NewProfileID();
         profile->id = newId;
         profile->gid = gid < 0 ? Configs::dataManager->settingsRepo->current_group : gid;
+        profile->auto_switch_score = 0;
         QMutexLocker locker(&mutex);
         identityMap[newId] = std::weak_ptr<Profile>(profile);
         saveToDatabase(profile.get(), profile->id);
@@ -361,6 +547,7 @@ namespace Configs {
             int id = firstId + i;
             toAdd[i]->id = id;
             toAdd[i]->gid = gid;
+            toAdd[i]->auto_switch_score = 0;
             identityMap[id] = std::weak_ptr<Profile>(toAdd[i]);
         }
 
@@ -401,7 +588,7 @@ namespace Configs {
             if (i > 0) idList += ",";
             idList += QString::number(chunkIds[i]);
         }
-        std::string sql = "SELECT id, type, name, gid, latency, dl_speed, ul_speed, test_country, "
+        std::string sql = "SELECT id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country, "
                          "ip_out, outbound_json, traffic_dl, traffic_up FROM profiles WHERE id IN (" +
                          idList.toStdString() + ") ORDER BY id";
         auto query = db.query(sql);

@@ -333,6 +333,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->toolButton_server->setMenu(ui->menu_server);
     ui->toolButton_routing->setMenu(ui->menuRouting_Menu);
     ui->menubar->setVisible(false);
+    ui->toolButton_update->setEnabled(false);
     connect(ui->toolButton_update, &QToolButton::clicked, this, [=,this] { runOnNewThread([=,this] { CheckUpdate(); }); });
     if (!QFile::exists(QApplication::applicationDirPath() + "/updater") && !QFile::exists(QApplication::applicationDirPath() + "/updater.exe"))
     {
@@ -397,6 +398,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             action.method = GroupSortMethod::ByTestResult;
         } else if (logicalIndex == 4) {
             action.method = GroupSortMethod::ByTraffic;
+        } else if (logicalIndex == 5) {
+            action.method = GroupSortMethod::ByAutoSwitchScore;
+            action.descending = !action.descending;
         } else {
             return;
         }
@@ -719,6 +723,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     //
     connect(ui->checkBox_VPN, &QCheckBox::clicked, this, [=,this](bool checked) { set_spmode_vpn(checked); });
     connect(ui->checkBox_SystemProxy, &QCheckBox::clicked, this, [=,this](bool checked) { set_spmode_system_proxy(checked); });
+    connect(ui->checkBox_AutoSwitch, &QCheckBox::clicked, this, [=,this](bool checked) {
+        Configs::dataManager->settingsRepo->auto_switch_enabled = checked;
+        Configs::dataManager->settingsRepo->Save();
+    });
     connect(ui->menu_spmode, &QMenu::aboutToShow, this, [=,this]() {
         ui->menu_spmode_disabled->setChecked(!(Configs::dataManager->settingsRepo->spmode_system_proxy || Configs::dataManager->settingsRepo->spmode_vpn));
         ui->menu_spmode_system_proxy->setChecked(Configs::dataManager->settingsRepo->spmode_system_proxy);
@@ -1934,6 +1942,7 @@ void MainWindow::refresh_status(const QString &traffic_update) {
     //
     ui->checkBox_VPN->setChecked(Configs::dataManager->settingsRepo->spmode_vpn);
     ui->checkBox_SystemProxy->setChecked(Configs::dataManager->settingsRepo->spmode_system_proxy);
+    ui->checkBox_AutoSwitch->setChecked(Configs::dataManager->settingsRepo->auto_switch_enabled);
     if (select_mode) {
         ui->label_running->setText(tr("Select") + " *");
         ui->label_running->setToolTip(tr("Select mode, double-click or press Enter to select a profile, press ESC to exit."));
@@ -2053,12 +2062,18 @@ void MainWindow::refresh_proxy_list_column_size() {
     auto *hHeader = dynamic_cast<ProfilesTableFilterHeader*>(ui->profilesTableView->horizontalHeader());
     QTimer::singleShot(0, ui->profilesTableView, [=, this]() {
         hHeader->blockSignals(true);
+        const int columnCount = hHeader->count();
+        const bool savedWidthsValid = group->column_width.size() == columnCount;
+        if (!savedWidthsValid) {
+            group->column_width.clear();
+        }
         if (group->column_width.isEmpty()) {
             hHeader->setSectionResizeMode(0, QHeaderView::ResizeToContents);
             hHeader->setSectionResizeMode(1, QHeaderView::Stretch);
             hHeader->setSectionResizeMode(2, QHeaderView::Stretch);
             hHeader->setSectionResizeMode(3, QHeaderView::ResizeToContents);
             hHeader->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+            hHeader->setSectionResizeMode(5, QHeaderView::ResizeToContents);
             if (!group->calculated_column_width.empty() && group->calculated_column_width[0] > hHeader->sectionSize(0)) {
                 hHeader->setSectionResizeMode(0, QHeaderView::Fixed);
                 hHeader->resizeSection(0, group->calculated_column_width[0]);
@@ -2071,9 +2086,13 @@ void MainWindow::refresh_proxy_list_column_size() {
                 hHeader->setSectionResizeMode(4, QHeaderView::Fixed);
                 hHeader->resizeSection(4, group->calculated_column_width[4]);
             }
+            if (group->calculated_column_width.size() > 5 && group->calculated_column_width[5] > hHeader->sectionSize(5)) {
+                hHeader->setSectionResizeMode(5, QHeaderView::Fixed);
+                hHeader->resizeSection(5, group->calculated_column_width[5]);
+            }
             ui->profilesTableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
             group->clearCalculatedColumnWidth();
-            for (int i=0;i<=4;i++) {
+            for (int i=0; i < columnCount; i++) {
                 auto size = hHeader->sectionSize(i);
                 hHeader->setSectionResizeMode(i, QHeaderView::Interactive);
                 hHeader->resizeSection(i, size);
@@ -2081,7 +2100,7 @@ void MainWindow::refresh_proxy_list_column_size() {
             }
         } else {
             group->clearCalculatedColumnWidth();
-            for (int i=0;i<=4;i++) {
+            for (int i=0; i < columnCount; i++) {
                 hHeader->setSectionResizeMode(i, QHeaderView::Interactive);
                 hHeader->resizeSection(i, group->column_width.at(i));
             }
@@ -2213,6 +2232,18 @@ void MainWindow::on_menu_reset_traffic_triggered() {
     }
     if (auto group = Configs::dataManager->groupsRepo->GetGroup(ents.first()->gid); group &&
         group->calculated_column_width.size() > 4) group->calculated_column_width[4] = 0;
+    refresh_proxy_list(entIDs);
+}
+
+void MainWindow::on_menu_reset_score_triggered() {
+    auto entIDs = get_now_selected_list();
+    if (entIDs.count() == 0) return;
+    auto ents = Configs::dataManager->profilesRepo->GetProfileBatch(entIDs);
+    if (ents.empty()) return;
+    for (const auto& ent: ents) {
+        ent->auto_switch_score = 0;
+    }
+    Configs::dataManager->profilesRepo->SaveBatch(ents);
     refresh_proxy_list(entIDs);
 }
 
@@ -2483,6 +2514,20 @@ void MainWindow::on_menu_clear_test_result_triggered() {
     if (auto group = Configs::dataManager->groupsRepo->GetGroup(ents.first()->gid); group &&
         group->calculated_column_width.size() > 3) group->calculated_column_width[3] = 0;
     refresh_proxy_list();
+}
+
+void MainWindow::on_menu_reset_group_score_triggered() {
+    auto group = Configs::dataManager->groupsRepo->CurrentGroup();
+    if (!group) return;
+    auto entIDs = group->Profiles();
+    if (entIDs.count() == 0) return;
+    auto ents = Configs::dataManager->profilesRepo->GetProfileBatch(entIDs);
+    if (ents.empty()) return;
+    for (const auto& ent: ents) {
+        ent->auto_switch_score = 0;
+    }
+    Configs::dataManager->profilesRepo->SaveBatch(ents);
+    refresh_proxy_list(entIDs);
 }
 
 void MainWindow::on_menu_select_all_triggered() {
@@ -2924,6 +2969,7 @@ void MainWindow::on_tabWidget_customContextMenuRequested(const QPoint &p) {
         menu->addAction(ui->actionResolve_Out_IP);
         menu->addAction(ui->menu_resolve_domain);
         menu->addAction(ui->menu_clear_test_result);
+        menu->addAction(ui->menu_reset_group_score);
         menu->addAction(ui->menu_delete_repeat);
         menu->addAction(ui->menu_remove_unavailable);
         menu->addAction(ui->menu_remove_invalid);
@@ -3039,6 +3085,8 @@ void MainWindow::setActionsData()
     ui->menu_remove_invalid->setData(QString("m9"));
     ui->menu_remove_unavailable->setData(QString("m10"));
     ui->menu_reset_traffic->setData(QString("m11"));
+    ui->menu_reset_score->setData(QString("m30"));
+    ui->menu_reset_group_score->setData(QString("m31"));
     ui->menu_resolve_domain->setData(QString("m12"));
     ui->menu_resolve_selected->setData(QString("m13"));
     ui->menu_scan_qr->setData(QString("m14"));

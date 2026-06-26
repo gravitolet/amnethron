@@ -81,13 +81,20 @@ try {
     $ErrorActionPreference = $oldErrorActionPreference
 }
 if ($curlExitCode -ne 0 -or -not (Test-Path -LiteralPath $srsListTempPath)) {
-    throw "Failed to download srslist.h from $srsListUrl"
-}
-if ((Test-Path -LiteralPath $srsListPath) -and
-    ((Get-FileHash -Algorithm SHA256 -LiteralPath $srsListPath).Hash -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $srsListTempPath).Hash)) {
-    Remove-Item -LiteralPath $srsListTempPath -Force
+    $cachedSrsList = Get-Item -LiteralPath $srsListPath -ErrorAction SilentlyContinue
+    if ($cachedSrsList -and $cachedSrsList.Length -gt 0) {
+        Write-Warning "Failed to download srslist.h from $srsListUrl; using cached $srsListPath"
+        Remove-Item -LiteralPath $srsListTempPath -Force -ErrorAction SilentlyContinue
+    } else {
+        throw "Failed to download srslist.h from $srsListUrl and no cached file exists at $srsListPath"
+    }
 } else {
-    Move-Item -LiteralPath $srsListTempPath -Destination $srsListPath -Force
+    if ((Test-Path -LiteralPath $srsListPath) -and
+        ((Get-FileHash -Algorithm SHA256 -LiteralPath $srsListPath).Hash -eq (Get-FileHash -Algorithm SHA256 -LiteralPath $srsListTempPath).Hash)) {
+        Remove-Item -LiteralPath $srsListTempPath -Force
+    } else {
+        Move-Item -LiteralPath $srsListTempPath -Destination $srsListPath -Force
+    }
 }
 
 $env:INPUT_VERSION = $version

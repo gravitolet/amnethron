@@ -15,6 +15,13 @@ namespace Configs
         }
     }
 
+    int Profile::NormalizeAutoSwitchScore(int score) {
+        if (score < MinAutoSwitchScore || score > MaxAutoSwitchScore) {
+            return 0;
+        }
+        return score;
+    }
+
     void Profile::ClearTestResults() {
         test_country.clear();
         ip_out.clear();

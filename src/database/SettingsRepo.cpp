@@ -17,6 +17,7 @@ namespace Configs {
         boolMap = {
             {"disable_tray",                  &disable_tray},
             {"random_inbound_port",           &random_inbound_port},
+            {"auto_switch_enabled",           &auto_switch_enabled},
             {"mux_padding",                   &mux_padding},
             {"mux_default_on",                &mux_default_on},
             {"net_use_proxy",                 &net_use_proxy},

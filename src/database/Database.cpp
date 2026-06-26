@@ -78,10 +78,10 @@ namespace Configs {
     void Database::execBatchInsertProfilesChunk(const std::vector<ProfileInsertRow>& rows) {
         if (rows.empty()) return;
         const size_t n = rows.size();
-        std::string sql = "INSERT INTO profiles (id, type, name, gid, latency, dl_speed, ul_speed, test_country, ip_out, outbound_json, traffic_dl, traffic_up) VALUES ";
+        std::string sql = "INSERT INTO profiles (id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country, ip_out, outbound_json, traffic_dl, traffic_up) VALUES ";
         for (size_t i = 0; i < n; ++i) {
             if (i > 0) sql += ",";
-            sql += "(?,?,?,?,?,?,?,?,?,?,?,?)";
+            sql += "(?,?,?,?,?,?,?,?,?,?,?,?,?)";
         }
         try {
             SQLite::Statement stmt(db, sql);
@@ -92,6 +92,7 @@ namespace Configs {
                 stmt.bind(idx++, r.name);
                 stmt.bind(idx++, r.gid);
                 stmt.bind(idx++, r.latency);
+                stmt.bind(idx++, r.auto_switch_score);
                 stmt.bind(idx++, r.dl_speed);
                 stmt.bind(idx++, r.ul_speed);
                 stmt.bind(idx++, r.test_country);
@@ -110,10 +111,10 @@ namespace Configs {
     void Database::execBatchReplaceProfilesChunk(const std::vector<ProfileInsertRow>& rows) {
         if (rows.empty()) return;
         const size_t n = rows.size();
-        std::string sql = "INSERT OR REPLACE INTO profiles (id, type, name, gid, latency, dl_speed, ul_speed, test_country, ip_out, outbound_json, traffic_dl, traffic_up) VALUES ";
+        std::string sql = "INSERT OR REPLACE INTO profiles (id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country, ip_out, outbound_json, traffic_dl, traffic_up) VALUES ";
         for (size_t i = 0; i < n; ++i) {
             if (i > 0) sql += ",";
-            sql += "(?,?,?,?,?,?,?,?,?,?,?,?)";
+            sql += "(?,?,?,?,?,?,?,?,?,?,?,?,?)";
         }
         try {
             SQLite::Statement stmt(db, sql);
@@ -124,6 +125,7 @@ namespace Configs {
                 stmt.bind(idx++, r.name);
                 stmt.bind(idx++, r.gid);
                 stmt.bind(idx++, r.latency);
+                stmt.bind(idx++, r.auto_switch_score);
                 stmt.bind(idx++, r.dl_speed);
                 stmt.bind(idx++, r.ul_speed);
                 stmt.bind(idx++, r.test_country);

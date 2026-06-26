@@ -206,7 +206,12 @@ int main(int argc, char* argv[]) {
     }
 
 #ifdef Q_OS_WIN
-    if (Configs::dataManager->settingsRepo->windows_set_admin && !Configs::IsAdmin() && !Configs::dataManager->settingsRepo->disable_run_admin)
+    const bool requestAdminOnStartup = Configs::ShouldRequestAdminOnStartup();
+    if (!requestAdminOnStartup && Configs::dataManager->settingsRepo->windows_set_admin) {
+        Configs::dataManager->settingsRepo->windows_set_admin = false;
+        Configs::dataManager->settingsRepo->Save();
+    }
+    if (requestAdminOnStartup && Configs::dataManager->settingsRepo->windows_set_admin && !Configs::IsAdmin())
     {
         Configs::dataManager->settingsRepo->windows_set_admin = false; // so that if permission denied, we will run as user on the next run
         Configs::dataManager->settingsRepo->Save();

@@ -56,6 +56,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     D_LOAD_STRING(test_latency_url)
     D_LOAD_BOOL(disable_tray)
     ui->reset_proxy_on_disable_sp->setChecked(Configs::dataManager->settingsRepo->reset_proxy_on_disable_sp);
+    ui->auto_switch_enabled->setChecked(Configs::dataManager->settingsRepo->auto_switch_enabled);
     ui->url_timeout->setText(Int2String(Configs::dataManager->settingsRepo->url_test_timeout_ms));
     ui->speedtest_mode->setCurrentIndex(Configs::dataManager->settingsRepo->speed_test_mode);
     ui->test_timeout->setText(Int2String(Configs::dataManager->settingsRepo->speed_test_timeout_ms));
@@ -297,6 +298,7 @@ void DialogBasicSettings::accept() {
     Configs::dataManager->settingsRepo->allow_beta_update = ui->allow_beta->isChecked();
     Configs::dataManager->settingsRepo->disable_mixed_inbound = ui->disable_mixed_inbound->isChecked();
     Configs::dataManager->settingsRepo->reset_proxy_on_disable_sp = ui->reset_proxy_on_disable_sp->isChecked();
+    Configs::dataManager->settingsRepo->auto_switch_enabled = ui->auto_switch_enabled->isChecked();
     D_SAVE_BOOL(inbound_auth)
     D_SAVE_STRING(inbound_user)
     D_SAVE_STRING(inbound_pass)

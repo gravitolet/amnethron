@@ -678,6 +678,101 @@ bool MainWindow::set_system_dns(bool set, bool save_set) {
     return true;
 }
 
+bool MainWindow::healthCheckCurrentProfile(const std::shared_ptr<Configs::Profile>& ent, QString& error, int& latency) {
+    latency = 0;
+    error.clear();
+    if (ent == nullptr) {
+        error = tr("Profile is empty");
+        return false;
+    }
+
+    libcore::TestReq req;
+    req.test_current = true;
+    auto url = Configs::dataManager->settingsRepo->test_latency_url.trimmed();
+    if (url.isEmpty()) {
+        url = "http://cp.cloudflare.com/";
+    }
+    req.url = url.toStdString();
+    req.test_timeout_ms = Configs::dataManager->settingsRepo->url_test_timeout_ms;
+
+    bool rpcOK = false;
+    auto result = defaultClient->Test(&rpcOK, req);
+    if (!rpcOK) {
+        error = tr("Core RPC call failed");
+        return false;
+    }
+    if (result.results.empty()) {
+        error = tr("No healthcheck result");
+        return false;
+    }
+
+    const auto& res = result.results[0];
+    latency = res.latency_ms.value();
+    if (!res.error.value().empty()) {
+        error = QString::fromStdString(res.error.value());
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::updateAutoSwitchScore(const std::shared_ptr<Configs::Profile>& ent, bool available) {
+    if (ent == nullptr) return;
+
+    ent->auto_switch_score = Configs::Profile::NormalizeAutoSwitchScore(ent->auto_switch_score);
+    if (available) {
+        ent->auto_switch_score = std::min(ent->auto_switch_score + 1, Configs::Profile::MaxAutoSwitchScore);
+    } else {
+        ent->auto_switch_score = std::max(ent->auto_switch_score - 1, Configs::Profile::MinAutoSwitchScore);
+    }
+    Configs::dataManager->profilesRepo->Save(ent);
+    MW_show_log(tr("[%1] auto-switch score: %2")
+        .arg(ent->outbound ? ent->outbound->DisplayTypeAndName() : ent->name)
+        .arg(ent->auto_switch_score));
+}
+
+std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const std::shared_ptr<Configs::Group>& group, const QSet<int>& triedIds) const {
+    if (group == nullptr) return nullptr;
+
+    const auto groupProfileIds = group->Profiles();
+    QList<std::shared_ptr<Configs::Profile>> candidates;
+    for (int id : groupProfileIds) {
+        if (triedIds.contains(id)) continue;
+        auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
+        if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
+        if (profile->type == "direct") continue;
+        candidates << profile;
+    }
+    if (candidates.isEmpty()) return nullptr;
+
+    auto latencyRank = [](const std::shared_ptr<Configs::Profile>& profile) {
+        if (profile->latency > 0) return profile->latency;
+        if (profile->latency < 0) return 1000001;
+        return 1000000;
+    };
+
+    std::sort(candidates.begin(), candidates.end(),
+              [&](const std::shared_ptr<Configs::Profile>& a, const std::shared_ptr<Configs::Profile>& b) {
+                  const int scoreA = Configs::Profile::NormalizeAutoSwitchScore(a->auto_switch_score);
+                  const int scoreB = Configs::Profile::NormalizeAutoSwitchScore(b->auto_switch_score);
+                  if (scoreA != scoreB) {
+                      return scoreA > scoreB;
+                  }
+                  const int latencyA = latencyRank(a);
+                  const int latencyB = latencyRank(b);
+                  if (latencyA != latencyB) {
+                      return latencyA < latencyB;
+                  }
+                  const int indexA = groupProfileIds.indexOf(a->id);
+                  const int indexB = groupProfileIds.indexOf(b->id);
+                  if (indexA != indexB) {
+                      return indexA < indexB;
+                  }
+                  return a->id < b->id;
+              });
+
+    return candidates.first();
+}
+
 void MainWindow::profile_start(int _id) {
     if (Configs::dataManager->settingsRepo->prepare_exit) return;
 #ifdef Q_OS_LINUX
@@ -703,13 +798,17 @@ void MainWindow::profile_start(int _id) {
     auto group = Configs::dataManager->groupsRepo->GetGroup(ent->gid);
     if (group == nullptr || group->archive) return;
 
-    auto result = Configs::BuildSingBoxConfig(ent);
-    if (!result->error.isEmpty()) {
-        MessageBoxWarning(tr("BuildConfig return error"), result->error);
-        return;
-    }
+    auto profile_start_stage2 = [=, this](const std::shared_ptr<Configs::Profile>& startEnt, bool showErrors) {
+        auto result = Configs::BuildSingBoxConfig(startEnt);
+        if (!result->error.isEmpty()) {
+            if (showErrors) {
+                runOnUiThread([=, this] { MessageBoxWarning(tr("BuildConfig return error"), result->error); });
+            } else {
+                MW_show_log(tr("BuildConfig return error: ") + result->error);
+            }
+            return false;
+        }
 
-    auto profile_start_stage2 = [=, this] {
         libcore::LoadConfigReq req;
         req.core_config = QJsonObject2QString(result->coreConfig, true).toStdString();
         req.tun_ipv4_cidr = result->tunIPv4CIDR.toStdString();
@@ -732,29 +831,37 @@ void MainWindow::profile_start(int _id) {
         }
         if (!error.isEmpty()) {
             if (error.contains("configure tun interface")) {
-                runOnUiThread([=, this] {
+                if (showErrors) {
+                    runOnUiThread([=, this] {
 
-                    QMessageBox msg(
-                        QMessageBox::Information,
-                        tr("Tun device misbehaving"),
-                        tr("If you have trouble starting VPN, you can force reset Core process here and then try starting the profile again. The error is %1").arg(error),
-                        QMessageBox::NoButton,
-                        this
-                    );
-                    msg.addButton(tr("Reset"), QMessageBox::ActionRole);
-                    auto cancel = msg.addButton(tr("Cancel"), QMessageBox::ActionRole);
+                        QMessageBox msg(
+                            QMessageBox::Information,
+                            tr("Tun device misbehaving"),
+                            tr("If you have trouble starting VPN, you can force reset Core process here and then try starting the profile again. The error is %1").arg(error),
+                            QMessageBox::NoButton,
+                            this
+                        );
+                        msg.addButton(tr("Reset"), QMessageBox::ActionRole);
+                        auto cancel = msg.addButton(tr("Cancel"), QMessageBox::ActionRole);
 
-                    msg.setDefaultButton(cancel);
-                    msg.setEscapeButton(cancel);
+                        msg.setDefaultButton(cancel);
+                        msg.setEscapeButton(cancel);
 
-                    int r = msg.exec() - 2;
-                    if (r == 0) {
-                        StopVPNProcess();
-                    }
-                });
+                        int r = msg.exec() - 2;
+                        if (r == 0) {
+                            StopVPNProcess();
+                        }
+                    });
+                } else {
+                    MW_show_log(tr("Tun device misbehaving: ") + error);
+                }
                 return false;
             }
-            runOnUiThread([=] { MessageBoxWarning("LoadConfig return error", error); });
+            if (showErrors) {
+                runOnUiThread([=] { MessageBoxWarning("LoadConfig return error", error); });
+            } else {
+                MW_show_log(tr("LoadConfig return error: ") + error);
+            }
             return false;
         }
         //
@@ -762,13 +869,18 @@ void MainWindow::profile_start(int _id) {
         Stats::trafficLooper->loop_enabled = true;
         Stats::connection_lister->suspend = false;
 
-        Configs::dataManager->settingsRepo->UpdateStartedId(ent->id);
-        running = ent;
+        const int previousStartedId = Configs::dataManager->settingsRepo->started_id;
+        Configs::dataManager->settingsRepo->UpdateStartedId(startEnt->id);
+        running = startEnt;
         set_system_proxy(false);
 
         runOnUiThread([=, this] {
             refresh_status();
-            refresh_proxy_list({ent->id});
+            QList<int> refreshIds{startEnt->id};
+            if (previousStartedId >= 0 && previousStartedId != startEnt->id) {
+                refreshIds << previousStartedId;
+            }
+            refresh_proxy_list(refreshIds);
 
             auto resp = NetworkRequestHelper::HttpGet("http://ip-api.com/json/", false, true);
             if (resp.error.isEmpty()) {
@@ -824,10 +936,63 @@ void MainWindow::profile_start(int _id) {
             mu_stopping.lock();
             mu_stopping.unlock();
         }
-        // do start
-        MW_show_log(">>>>>>>> " + tr("Starting profile %1").arg(ent->outbound->DisplayTypeAndName()));
-        if (!profile_start_stage2()) {
-            MW_show_log("<<<<<<<< " + tr("Failed to start profile %1").arg(ent->outbound->DisplayTypeAndName()));
+
+        if (!Configs::dataManager->settingsRepo->auto_switch_enabled) {
+            MW_show_log(">>>>>>>> " + tr("Starting profile %1").arg(ent->outbound->DisplayTypeAndName()));
+            if (!profile_start_stage2(ent, true)) {
+                MW_show_log("<<<<<<<< " + tr("Failed to start profile %1").arg(ent->outbound->DisplayTypeAndName()));
+            }
+        } else {
+            QSet<int> triedIds;
+            auto currentEnt = ent;
+            bool startedAndAvailable = false;
+
+            while (currentEnt != nullptr) {
+                triedIds.insert(currentEnt->id);
+                MW_show_log(">>>>>>>> " + tr("Starting profile %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+
+                if (!profile_start_stage2(currentEnt, currentEnt->id == ent->id)) {
+                    MW_show_log("<<<<<<<< " + tr("Failed to start profile %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                    currentEnt = selectAutoSwitchCandidate(group, triedIds);
+                    if (currentEnt != nullptr) {
+                        MW_show_log(tr("Trying next server in group by auto-switch score: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                    }
+                    continue;
+                }
+
+                QString healthError;
+                int healthLatency = 0;
+                if (healthCheckCurrentProfile(currentEnt, healthError, healthLatency)) {
+                    if (healthLatency > 0) currentEnt->latency = healthLatency;
+                    updateAutoSwitchScore(currentEnt, true);
+                    Configs::dataManager->profilesRepo->Save(currentEnt);
+                    MW_show_log("<<<<<<<< " + tr("Profile %1 is available (%2 ms)").arg(currentEnt->outbound->DisplayTypeAndName()).arg(healthLatency));
+                    startedAndAvailable = true;
+                    break;
+                }
+
+                updateAutoSwitchScore(currentEnt, false);
+                MW_show_log("[Warn] " + tr("Profile %1 is unavailable after start: %2")
+                    .arg(currentEnt->outbound->DisplayTypeAndName(), healthError));
+                profile_stop(false, true, false);
+
+                currentEnt = selectAutoSwitchCandidate(group, triedIds);
+                if (currentEnt != nullptr) {
+                    MW_show_log(tr("Switching to next server in group by auto-switch score: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                }
+            }
+
+            if (!startedAndAvailable) {
+                const int previousStartedId = Configs::dataManager->settingsRepo->started_id;
+                Configs::dataManager->settingsRepo->UpdateStartedId(-1919);
+                MW_show_log("[Warn] " + tr("No available server found in this group."));
+                if (previousStartedId >= 0) {
+                    runOnUiThread([=, this] {
+                        refresh_status();
+                        refresh_proxy_list({previousStartedId});
+                    });
+                }
+            }
         }
         mu_starting.unlock();
         // cancel timeout

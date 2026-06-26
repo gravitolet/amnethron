@@ -96,6 +96,17 @@ namespace Configs {
         return admin;
     }
 
+    bool ShouldRequestAdminOnStartup() {
+        if (dataManager == nullptr || dataManager->settingsRepo == nullptr) return false;
+
+        const auto* settings = dataManager->settingsRepo.get();
+        if (settings->disable_run_admin || settings->disable_privilege_req) return false;
+
+        const bool needsTun = settings->remember_tun || settings->flag_restart_tun_on;
+        const bool needsSystemDns = settings->enable_dns_server && (settings->system_dns_set || settings->flag_dns_set);
+        return needsTun || needsSystemDns;
+    }
+
     QString GetBasePath() {
         if (Configs::dataManager->settingsRepo->flag_use_appdata) return QStandardPaths::writableLocation(
               QStandardPaths::AppConfigLocation);

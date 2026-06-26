@@ -45,5 +45,6 @@ namespace Configs {
         groupsRepo = std::make_unique<GroupsRepo>(db);
         routesRepo = std::make_unique<RoutesRepo>(db);
         settingsRepo = std::make_unique<SettingsRepo>(db);
+        profilesRepo->NormalizeLocalProfileStorageEncryption();
     }
 }

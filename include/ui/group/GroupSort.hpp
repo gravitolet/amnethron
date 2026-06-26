@@ -10,6 +10,7 @@ namespace GroupSortMethod {
         ByTestResult,
         ById,
         ByTraffic,
+        ByAutoSwitchScore,
     };
 }
 

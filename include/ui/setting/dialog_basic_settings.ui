@@ -213,7 +213,7 @@ QTabBar::tab:hover:!selected {
         </widget>
        </item>
        <item>
-        <widget class="QGroupBox" name="groupBox_3">
+        <widget class="QGroupBox" name="network_settings_group">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
            <horstretch>0</horstretch>
@@ -255,11 +255,21 @@ QTabBar::tab:hover:!selected {
             </property>
            </widget>
           </item>
+          <item row="2" column="0" colspan="4">
+           <widget class="QCheckBox" name="auto_switch_enabled">
+            <property name="toolTip">
+             <string>After a profile starts, test the current connection and switch to the next best server in the same group if it is unavailable.</string>
+            </property>
+            <property name="text">
+             <string>Enable auto-switch to next server</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
        <item>
-        <widget class="QGroupBox" name="groupBox_3">
+        <widget class="QGroupBox" name="testing_settings_group">
          <property name="title">
           <string>Testing</string>
          </property>

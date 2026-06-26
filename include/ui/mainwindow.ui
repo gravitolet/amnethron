@@ -260,6 +260,16 @@ QToolButton::menu-indicator {
        </layout>
       </item>
       <item>
+       <widget class="QCheckBox" name="checkBox_AutoSwitch">
+        <property name="toolTip">
+         <string>Автоматически переключаться на следующий сервер в группе, если текущий недоступен</string>
+        </property>
+        <property name="text">
+         <string>Автопереключение</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QTextBrowser" name="data_view">
         <property name="enabled">
          <bool>true</bool>
@@ -740,6 +750,7 @@ QTabBar::tab:hover:!selected {
     <addaction name="menu_select_all"/>
     <addaction name="menu_clone"/>
     <addaction name="menu_reset_traffic"/>
+    <addaction name="menu_reset_score"/>
     <addaction name="menu_delete"/>
     <addaction name="menu_share_item"/>
     <addaction name="separator"/>
@@ -902,6 +913,16 @@ QTabBar::tab:hover:!selected {
    </property>
    <property name="shortcut">
     <string notr="true">Ctrl+R</string>
+   </property>
+  </action>
+  <action name="menu_reset_score">
+   <property name="text">
+    <string>Сброс рейтинга</string>
+   </property>
+  </action>
+  <action name="menu_reset_group_score">
+   <property name="text">
+    <string>Сброс рейтинга всей группы</string>
    </property>
   </action>
   <action name="menu_scan_qr">

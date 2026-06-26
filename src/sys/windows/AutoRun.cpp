@@ -29,7 +29,7 @@ void enable_autorun() {
     QString exePath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
     QString userId = getCurrentUser();
 
-    QString runLevel = (Configs::IsAdmin() && !Configs::dataManager->settingsRepo->disable_run_admin) ? "HighestAvailable" : "LeastPrivilege";
+    QString runLevel = (Configs::ShouldRequestAdminOnStartup() && Configs::IsAdmin()) ? "HighestAvailable" : "LeastPrivilege";
 
     QString xmlContent = QString(
         "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n"
@@ -139,7 +139,7 @@ bool AutoRun_IsEnabled() {
 
 void AutoRun_FixPrivilegeIfNeeded() {
     QString taskName = GetTaskName();
-    QString runLevel = (Configs::IsAdmin() && !Configs::dataManager->settingsRepo->disable_run_admin) ? "HighestAvailable" : "LeastPrivilege";
+    QString runLevel = (Configs::ShouldRequestAdminOnStartup() && Configs::IsAdmin()) ? "HighestAvailable" : "LeastPrivilege";
 
     QProcess process;
     process.start("schtasks.exe", QStringList() << "/query" << "/tn" << taskName << "/xml");

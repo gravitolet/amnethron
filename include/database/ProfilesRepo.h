@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <map>
+#include <utility>
 #include <QString>
 #include <QJsonObject>
 
@@ -25,6 +26,12 @@ namespace Configs {
         
         // Save profile to database (internal helper)
         void saveToDatabase(const Profile* profile, int id) const;
+
+        QString outboundJsonForStorage(int gid, const QString& outboundJson) const;
+
+        QString outboundJsonFromStorage(const QString& storedOutboundJson) const;
+
+        bool shouldEncryptOutboundJson(int gid) const;
 
         // Build one row for batch insert (same columns as saveToDatabase)
         ProfileInsertRow profileToInsertRow(const Profile* profile, int id, int gid) const;
@@ -57,6 +64,8 @@ namespace Configs {
         
         // Add multiple profiles in batch
         bool AddProfileBatch(QList<std::shared_ptr<Profile>>& profiles, int gid = -1);
+
+        void NormalizeLocalProfileStorageEncryption() const;
         
         // Get profile by ID (uses identity map)
         std::shared_ptr<Profile> GetProfile(int id) const;

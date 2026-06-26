@@ -13,6 +13,8 @@ namespace Configs {
 
     bool IsAdmin(bool forceRenew=false);
 
+    bool ShouldRequestAdminOnStartup();
+
     bool isSetuidSet(const std::string& path);
 
     QString GetBasePath();

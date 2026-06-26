@@ -27,6 +27,7 @@
 #include <QCheckBox>
 #include <QSemaphore>
 #include <QMutex>
+#include <QSet>
 #include <QThreadPool>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -41,6 +42,10 @@
 
 namespace Configs_sys {
     class CoreProcess;
+}
+
+namespace Configs {
+    class Group;
 }
 
 QT_BEGIN_NAMESPACE
@@ -131,6 +136,8 @@ private slots:
 
     void on_menu_reset_traffic_triggered();
 
+    void on_menu_reset_score_triggered();
+
     void on_menu_copy_links_triggered();
 
     void on_menu_copy_links_nkr_triggered();
@@ -142,6 +149,8 @@ private slots:
     void on_menu_scan_qr_triggered();
 
     void on_menu_clear_test_result_triggered();
+
+    void on_menu_reset_group_score_triggered();
 
     void on_menu_manage_groups_triggered();
 
@@ -321,6 +330,12 @@ private:
     void runIPTest(const QString& config, const QString& xrayConfig, bool useDefault, const QStringList& outboundTags, const QMap<QString, int>& tag2entID, int entID = -1);
 
     void url_test_current();
+
+    bool healthCheckCurrentProfile(const std::shared_ptr<Configs::Profile>& ent, QString& error, int& latency);
+
+    void updateAutoSwitchScore(const std::shared_ptr<Configs::Profile>& ent, bool available);
+
+    std::shared_ptr<Configs::Profile> selectAutoSwitchCandidate(const std::shared_ptr<Configs::Group>& group, const QSet<int>& triedIds) const;
 
     void speedtest_current_group(const QList<int>& profileIDs, bool testCurrent = false);
 
