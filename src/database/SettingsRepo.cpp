@@ -67,6 +67,8 @@ namespace Configs {
             {"inbound_socks_port",     &inbound_socks_port},
             {"mux_concurrency",        &mux_concurrency},
             {"test_concurrent",        &test_concurrent},
+            {"auto_speedtest_update",  &auto_speedtest_update},
+            {"auto_switch_speed_threshold", &auto_switch_speed_threshold},
             {"remember_id",            &remember_id},
             {"language",               &language},
             {"font_size",              &font_size},

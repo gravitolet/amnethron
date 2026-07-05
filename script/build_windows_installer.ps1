@@ -133,6 +133,22 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Destination $versionedInstaller -Force
     Remove-Item -LiteralPath (Join-Path $installerDir 'ThroneSetup.exe') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Force -ErrorAction SilentlyContinue
+
+    # The version-description text file must always sit next to the installer.
+    $versionsFile = Join-Path $installerDir 'versions.txt'
+    if (-not (Test-Path -LiteralPath $versionsFile)) {
+        Write-Warning "versions.txt not found next to the installer at $versionsFile. Add a description entry for version $version."
+    } elseif (-not (Select-String -LiteralPath $versionsFile -SimpleMatch -Pattern $version -Quiet)) {
+        Write-Warning "versions.txt does not mention version $version. Add a description entry before publishing."
+    }
+
+    $publishDir = 'D:\YandexDisk\Install\Net\vpn\AmneThron'
+    if (Test-Path -LiteralPath $publishDir) {
+        Copy-Item -LiteralPath $versionedInstaller -Destination $publishDir -Force
+        if (Test-Path -LiteralPath $versionsFile) {
+            Copy-Item -LiteralPath $versionsFile -Destination $publishDir -Force
+        }
+    }
 } finally {
     Pop-Location
 }

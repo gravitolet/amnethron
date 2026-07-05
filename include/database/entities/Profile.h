@@ -35,7 +35,6 @@ namespace Configs {
         int id = -1;
         int gid = 0;
         int latency = 0;
-        int auto_switch_score = 0;
         QString dl_speed;
         QString ul_speed;
         QString test_country;
@@ -50,10 +49,6 @@ namespace Configs {
 
         Profile() = default;
         Profile(Configs::outbound *outbound, const QString &type_);
-
-        static constexpr int MinAutoSwitchScore = -10;
-        static constexpr int MaxAutoSwitchScore = 10;
-        [[nodiscard]] static int NormalizeAutoSwitchScore(int score);
 
         void ClearTestResults();
 

@@ -68,6 +68,12 @@ namespace Configs {
         QString test_latency_url = "http://cp.cloudflare.com/";
         int url_test_timeout_ms = 3000;
         bool auto_switch_enabled = false;
+        // Periodic auto speed test of the running/current group. Minutes; sign encodes the
+        // enable state like sub_auto_update (negative = disabled). Invalid if abs < 5.
+        int auto_speedtest_update = -60;
+        // Minimum percentage by which a candidate's combined (download+upload) speed must
+        // exceed the running server's before auto-switch picks it.
+        int auto_switch_speed_threshold = 20;
         bool disable_tray = false;
         int test_concurrent = 10;
         bool disable_traffic_stats = false;

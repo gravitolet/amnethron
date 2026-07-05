@@ -234,8 +234,16 @@ Section "Install"
   File "${PROJECT_ROOT}\deployment\windows-amd64\rulesets\*.srs"
   SetOutPath "$INSTDIR"
 
-  CreateShortcut "$DESKTOP\Throne.lnk" "$INSTDIR\Throne.exe"
-  CreateShortcut "$SMPROGRAMS\Throne.lnk" "$INSTDIR\Throne.exe" "" "$INSTDIR\Throne.exe" 0
+  ${If} $IsAllUsers == "1"
+    SetShellVarContext all
+  ${Else}
+    SetShellVarContext current
+  ${EndIf}
+  CreateDirectory "$DESKTOP"
+  CreateDirectory "$SMPROGRAMS\Throne"
+  Delete "$SMPROGRAMS\Throne.lnk"
+  CreateShortcut "$DESKTOP\Throne.lnk" "$INSTDIR\Throne.exe" "" "$INSTDIR\Throne.exe" 0
+  CreateShortcut "$SMPROGRAMS\Throne\Throne.lnk" "$INSTDIR\Throne.exe" "" "$INSTDIR\Throne.exe" 0
 
   WriteRegStr SHCTX "Software\Throne" "InstallPath" "$INSTDIR"
   WriteRegStr SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\Throne" "DisplayName" "Throne ${APP_VERSION}"
@@ -291,6 +299,7 @@ FunctionEnd
 Section "Uninstall"
   !insertmacro AbortOnRunningApp "$INSTDIR\Throne.exe"
 
+  Delete "$SMPROGRAMS\Throne\Throne.lnk"
   Delete "$SMPROGRAMS\Throne.lnk"
   Delete "$DESKTOP\Throne.lnk"
   RMDir "$SMPROGRAMS\Throne"

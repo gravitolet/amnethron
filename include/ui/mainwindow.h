@@ -136,8 +136,6 @@ private slots:
 
     void on_menu_reset_traffic_triggered();
 
-    void on_menu_reset_score_triggered();
-
     void on_menu_copy_links_triggered();
 
     void on_menu_copy_links_nkr_triggered();
@@ -149,8 +147,6 @@ private slots:
     void on_menu_scan_qr_triggered();
 
     void on_menu_clear_test_result_triggered();
-
-    void on_menu_reset_group_score_triggered();
 
     void on_menu_manage_groups_triggered();
 
@@ -333,11 +329,24 @@ private:
 
     bool healthCheckCurrentProfile(const std::shared_ptr<Configs::Profile>& ent, QString& error, int& latency);
 
-    void updateAutoSwitchScore(const std::shared_ptr<Configs::Profile>& ent, bool available);
-
     std::shared_ptr<Configs::Profile> selectAutoSwitchCandidate(const std::shared_ptr<Configs::Group>& group, const QSet<int>& triedIds) const;
 
-    void speedtest_current_group(const QList<int>& profileIDs, bool testCurrent = false);
+    // Combined download+upload speed (bits/sec) from the last speed test; 0 if untested/unavailable.
+    qint64 profileCombinedSpeed(const std::shared_ptr<Configs::Profile>& ent) const;
+
+    // Fastest server in the group by combined download+upload speed; nullptr if none testable.
+    std::shared_ptr<Configs::Profile> selectFastestBySpeed(const std::shared_ptr<Configs::Group>& group) const;
+
+    // Periodic timer target: speed-test the running (or current) group, then evaluate a switch.
+    void autoSpeedTestAndSwitch();
+
+    // If auto-switch is enabled, switch the running profile to a group peer whose combined
+    // speed beats it by at least auto_switch_speed_threshold percent.
+    void autoSwitchBySpeed();
+
+    // onFinished (when set) runs on the worker thread after the batch completes; its presence
+    // also marks the call as a background test that stays silent when another test is running.
+    void speedtest_current_group(const QList<int>& profileIDs, bool testCurrent = false, std::function<void()> onFinished = {});
 
     void runSpeedTest(const QString& config, const QString& xrayConfig, bool useDefault, bool testCurrent, const QStringList& outboundTags, const QMap<QString, int>& tag2entID, int entID = -1);
 

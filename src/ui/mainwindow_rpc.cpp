@@ -445,19 +445,23 @@ void MainWindow::iptest_current_group(const QList<int>& profileIDs) {
     });
 }
 
-void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool testCurrent)
+void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool testCurrent, std::function<void()> onFinished)
 {
     if (profileIDs.isEmpty() && !testCurrent) {
         return;
     }
     if (!speedtestRunning.tryLock()) {
-        MessageBoxWarning(software_name, tr("The last test did not finish completely, please wait. If it persists, please restart the program."));
+        // Background (periodic) calls carry a callback and must not pop up a warning; just skip
+        // this tick and let the next one run once the current test finishes.
+        if (!onFinished) {
+            MessageBoxWarning(software_name, tr("The last test did not finish completely, please wait. If it persists, please restart the program."));
+        }
         return;
     }
 
     currentUnderTest.store(testCurrent);
 
-    runOnNewThread([this, profileIDs, testCurrent]() {
+    runOnNewThread([this, profileIDs, testCurrent, onFinished]() {
         stopSpeedtest.store(false);
         if (!testCurrent)
         {
@@ -500,6 +504,7 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
             refresh_proxy_list(profileIDs);
             MW_show_log(tr("Speedtest finished!"));
         });
+        if (onFinished) onFinished();
     });
 }
 
@@ -715,19 +720,34 @@ bool MainWindow::healthCheckCurrentProfile(const std::shared_ptr<Configs::Profil
     return true;
 }
 
-void MainWindow::updateAutoSwitchScore(const std::shared_ptr<Configs::Profile>& ent, bool available) {
-    if (ent == nullptr) return;
+qint64 MainWindow::profileCombinedSpeed(const std::shared_ptr<Configs::Profile>& ent) const {
+    if (ent == nullptr) return 0;
+    // bitrateToBps returns -1 for "N/A" and 0 for empty/unknown; clamp both to 0 so a server
+    // without a measurement for one direction is simply not credited for it. Summing download
+    // and upload ensures both directions are taken into account when ranking servers.
+    const double dl = Configs::bitrateToBps(ent->dl_speed);
+    const double ul = Configs::bitrateToBps(ent->ul_speed);
+    const double combined = std::max(0.0, dl) + std::max(0.0, ul);
+    return static_cast<qint64>(combined);
+}
 
-    ent->auto_switch_score = Configs::Profile::NormalizeAutoSwitchScore(ent->auto_switch_score);
-    if (available) {
-        ent->auto_switch_score = std::min(ent->auto_switch_score + 1, Configs::Profile::MaxAutoSwitchScore);
-    } else {
-        ent->auto_switch_score = std::max(ent->auto_switch_score - 1, Configs::Profile::MinAutoSwitchScore);
+std::shared_ptr<Configs::Profile> MainWindow::selectFastestBySpeed(const std::shared_ptr<Configs::Group>& group) const {
+    if (group == nullptr) return nullptr;
+
+    std::shared_ptr<Configs::Profile> best = nullptr;
+    qint64 bestSpeed = -1;
+    for (int id : group->Profiles()) {
+        auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
+        if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
+        if (profile->type == "direct") continue;
+        if (profile->latency < 0) continue; // known unavailable in the last test
+        const qint64 speed = profileCombinedSpeed(profile);
+        if (speed > bestSpeed) {
+            bestSpeed = speed;
+            best = profile;
+        }
     }
-    Configs::dataManager->profilesRepo->Save(ent);
-    MW_show_log(tr("[%1] auto-switch score: %2")
-        .arg(ent->outbound ? ent->outbound->DisplayTypeAndName() : ent->name)
-        .arg(ent->auto_switch_score));
+    return best;
 }
 
 std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const std::shared_ptr<Configs::Group>& group, const QSet<int>& triedIds) const {
@@ -750,12 +770,14 @@ std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const st
         return 1000000;
     };
 
+    // Prefer the fastest by measured combined speed; fall back to latency then group order
+    // so untested servers still get tried in a stable, sensible sequence.
     std::sort(candidates.begin(), candidates.end(),
               [&](const std::shared_ptr<Configs::Profile>& a, const std::shared_ptr<Configs::Profile>& b) {
-                  const int scoreA = Configs::Profile::NormalizeAutoSwitchScore(a->auto_switch_score);
-                  const int scoreB = Configs::Profile::NormalizeAutoSwitchScore(b->auto_switch_score);
-                  if (scoreA != scoreB) {
-                      return scoreA > scoreB;
+                  const qint64 speedA = profileCombinedSpeed(a);
+                  const qint64 speedB = profileCombinedSpeed(b);
+                  if (speedA != speedB) {
+                      return speedA > speedB;
                   }
                   const int latencyA = latencyRank(a);
                   const int latencyB = latencyRank(b);
@@ -771,6 +793,56 @@ std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const st
               });
 
     return candidates.first();
+}
+
+void MainWindow::autoSpeedTestAndSwitch() {
+    if (Configs::dataManager->settingsRepo->prepare_exit) return;
+
+    // Prefer the running profile's group; fall back to the visible group so the periodic
+    // test still refreshes data when nothing is connected.
+    std::shared_ptr<Configs::Group> group;
+    if (running != nullptr) group = Configs::dataManager->groupsRepo->GetGroup(running->gid);
+    if (group == nullptr) group = Configs::dataManager->groupsRepo->CurrentGroup();
+    if (group == nullptr || group->archive) return;
+
+    auto profileIDs = group->Profiles();
+    if (profileIDs.isEmpty()) return;
+
+    MW_show_log(tr("Auto speed test started for group: %1").arg(group->name));
+    speedtest_current_group(profileIDs, false, [this] { autoSwitchBySpeed(); });
+}
+
+void MainWindow::autoSwitchBySpeed() {
+    if (!Configs::dataManager->settingsRepo->auto_switch_enabled) return;
+    if (running == nullptr) return;
+
+    auto group = Configs::dataManager->groupsRepo->GetGroup(running->gid);
+    if (group == nullptr) return;
+
+    auto best = selectFastestBySpeed(group);
+    if (best == nullptr || best->id == running->id) return;
+
+    const qint64 currentSpeed = profileCombinedSpeed(running);
+    const qint64 bestSpeed = profileCombinedSpeed(best);
+    if (bestSpeed <= 0) return;
+
+    int threshold = Configs::dataManager->settingsRepo->auto_switch_speed_threshold;
+    if (threshold < 0) threshold = 0;
+
+    bool shouldSwitch;
+    if (currentSpeed <= 0) {
+        // No usable measurement for the running server: any faster peer wins.
+        shouldSwitch = true;
+    } else {
+        shouldSwitch = bestSpeed >= currentSpeed * (100 + threshold) / 100;
+    }
+    if (!shouldSwitch) return;
+
+    const int bestId = best->id;
+    MW_show_log(tr("Auto-switch by speed: switching to %1 (faster than the current server by at least %2%)")
+        .arg(best->outbound ? best->outbound->DisplayTypeAndName() : best->name)
+        .arg(threshold));
+    runOnUiThread([=, this] { profile_start(bestId); });
 }
 
 void MainWindow::profile_start(int _id) {
@@ -955,7 +1027,7 @@ void MainWindow::profile_start(int _id) {
                     MW_show_log("<<<<<<<< " + tr("Failed to start profile %1").arg(currentEnt->outbound->DisplayTypeAndName()));
                     currentEnt = selectAutoSwitchCandidate(group, triedIds);
                     if (currentEnt != nullptr) {
-                        MW_show_log(tr("Trying next server in group by auto-switch score: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                        MW_show_log(tr("Trying next server in group by speed: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
                     }
                     continue;
                 }
@@ -964,21 +1036,19 @@ void MainWindow::profile_start(int _id) {
                 int healthLatency = 0;
                 if (healthCheckCurrentProfile(currentEnt, healthError, healthLatency)) {
                     if (healthLatency > 0) currentEnt->latency = healthLatency;
-                    updateAutoSwitchScore(currentEnt, true);
                     Configs::dataManager->profilesRepo->Save(currentEnt);
                     MW_show_log("<<<<<<<< " + tr("Profile %1 is available (%2 ms)").arg(currentEnt->outbound->DisplayTypeAndName()).arg(healthLatency));
                     startedAndAvailable = true;
                     break;
                 }
 
-                updateAutoSwitchScore(currentEnt, false);
                 MW_show_log("[Warn] " + tr("Profile %1 is unavailable after start: %2")
                     .arg(currentEnt->outbound->DisplayTypeAndName(), healthError));
                 profile_stop(false, true, false);
 
                 currentEnt = selectAutoSwitchCandidate(group, triedIds);
                 if (currentEnt != nullptr) {
-                    MW_show_log(tr("Switching to next server in group by auto-switch score: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                    MW_show_log(tr("Switching to next server in group by speed: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
                 }
             }
 

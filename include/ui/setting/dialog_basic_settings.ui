@@ -258,10 +258,30 @@ QTabBar::tab:hover:!selected {
           <item row="2" column="0" colspan="4">
            <widget class="QCheckBox" name="auto_switch_enabled">
             <property name="toolTip">
-             <string>After a profile starts, test the current connection and switch to the next best server in the same group if it is unavailable.</string>
+             <string>After a profile starts, test the current connection and switch to the next best server in the same group if it is unavailable. When a periodic group speed test is enabled, also switch to a faster server in the same group.</string>
             </property>
             <property name="text">
              <string>Enable auto-switch to next server</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="4">
+           <widget class="QLabel" name="auto_switch_speed_threshold_l">
+            <property name="toolTip">
+             <string>A server in the same group is picked only if its combined download+upload speed exceeds the current server by at least this percentage.</string>
+            </property>
+            <property name="text">
+             <string>Auto-switch speed threshold (%)</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="5">
+           <widget class="QLineEdit" name="auto_switch_speed_threshold">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
             </property>
            </widget>
           </item>
@@ -892,6 +912,56 @@ QTabBar::tab:hover:!selected {
           <string>User Agent</string>
          </property>
         </widget>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="label_auto_speedtest">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="toolTip">
+          <string>Periodically run a speed test on the running server's group (the same test as "Speed Test Group" in the group context menu). When auto-switch is enabled, switch to a faster server afterwards.</string>
+         </property>
+         <property name="text">
+          <string>Automatic group speed test</string>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <layout class="QHBoxLayout" name="horizontalLayout_auto_speedtest">
+         <item>
+          <widget class="QCheckBox" name="auto_speedtest_enable">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="text">
+            <string>Enable</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_auto_speedtest_interval">
+           <property name="text">
+            <string>Interval (minute, invalid if less than 5)</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="auto_speedtest_update">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
        <item row="2" column="0">
         <widget class="QCheckBox" name="allow_stopping_active_profile">

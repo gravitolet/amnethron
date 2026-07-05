@@ -57,6 +57,8 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     D_LOAD_BOOL(disable_tray)
     ui->reset_proxy_on_disable_sp->setChecked(Configs::dataManager->settingsRepo->reset_proxy_on_disable_sp);
     ui->auto_switch_enabled->setChecked(Configs::dataManager->settingsRepo->auto_switch_enabled);
+    ui->auto_switch_speed_threshold->setText(Int2String(Configs::dataManager->settingsRepo->auto_switch_speed_threshold));
+    ui->auto_switch_speed_threshold->setValidator(QRegExpValidator_Number);
     ui->url_timeout->setText(Int2String(Configs::dataManager->settingsRepo->url_test_timeout_ms));
     ui->speedtest_mode->setCurrentIndex(Configs::dataManager->settingsRepo->speed_test_mode);
     ui->test_timeout->setText(Int2String(Configs::dataManager->settingsRepo->speed_test_timeout_ms));
@@ -196,6 +198,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     D_LOAD_BOOL(sub_send_hwid)
     D_LOAD_STRING(sub_custom_hwid_params)
     D_LOAD_INT_ENABLE(sub_auto_update, sub_auto_update_enable)
+    D_LOAD_INT_ENABLE(auto_speedtest_update, auto_speedtest_enable)
     auto details = GetDeviceDetails();
 	ui->sub_send_hwid->setToolTip(
         ui->sub_send_hwid->toolTip()
@@ -299,6 +302,7 @@ void DialogBasicSettings::accept() {
     Configs::dataManager->settingsRepo->disable_mixed_inbound = ui->disable_mixed_inbound->isChecked();
     Configs::dataManager->settingsRepo->reset_proxy_on_disable_sp = ui->reset_proxy_on_disable_sp->isChecked();
     Configs::dataManager->settingsRepo->auto_switch_enabled = ui->auto_switch_enabled->isChecked();
+    Configs::dataManager->settingsRepo->auto_switch_speed_threshold = ui->auto_switch_speed_threshold->text().toInt();
     D_SAVE_BOOL(inbound_auth)
     D_SAVE_STRING(inbound_user)
     D_SAVE_STRING(inbound_pass)
@@ -347,6 +351,13 @@ void DialogBasicSettings::accept() {
     } else {
         TM_auto_update_subsctiption_Reset_Minute(0);
     }
+
+    if (ui->auto_speedtest_enable->isChecked()) {
+        TM_auto_speedtest_Reset_Minute(ui->auto_speedtest_update->text().toInt());
+    } else {
+        TM_auto_speedtest_Reset_Minute(0);
+    }
+    D_SAVE_INT_ENABLE(auto_speedtest_update, auto_speedtest_enable)
 
     Configs::dataManager->settingsRepo->user_agent = ui->user_agent->text();
     D_SAVE_BOOL(net_use_proxy)

@@ -118,6 +118,8 @@ inline QThread *LogThread;
 class QTimer;
 inline QTimer *TM_auto_update_subsctiption;
 inline std::function<void(int)> TM_auto_update_subsctiption_Reset_Minute;
+inline QTimer *TM_auto_speedtest;
+inline std::function<void(int)> TM_auto_speedtest_Reset_Minute;
 
 // String
 

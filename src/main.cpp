@@ -8,6 +8,7 @@
 #include <QStandardPaths>
 #include <QLocalSocket>
 #include <QLocalServer>
+#include <QTemporaryFile>
 #include <QThread>
 #include <3rdparty/WinCommander.hpp>
 
@@ -83,6 +84,38 @@ void loadTranslate(const QString& locale) {
 
 #define LOCAL_SERVER_PREFIX "throne-"
 
+namespace {
+    bool isDirectoryWritable(const QDir& dir) {
+        if (!dir.exists()) return false;
+
+        QTemporaryFile probe(dir.absoluteFilePath(".throne-write-test-XXXXXX.tmp"));
+        probe.setAutoRemove(true);
+        return probe.open();
+    }
+
+#ifdef Q_OS_WIN
+    QString normalizedPath(QString path) {
+        path = QDir::cleanPath(QDir(path).absolutePath());
+        path.replace('\\', '/');
+        return path.toCaseFolded();
+    }
+
+    bool isUnderPath(const QString& path, const QString& root) {
+        if (root.isEmpty()) return false;
+
+        const QString normalizedRoot = normalizedPath(root);
+        const QString normalizedChild = normalizedPath(path);
+        return normalizedChild == normalizedRoot || normalizedChild.startsWith(normalizedRoot + '/');
+    }
+
+    bool isProgramFilesPath(const QString& path) {
+        return isUnderPath(path, qEnvironmentVariable("ProgramFiles")) ||
+               isUnderPath(path, qEnvironmentVariable("ProgramFiles(x86)")) ||
+               isUnderPath(path, qEnvironmentVariable("ProgramW6432"));
+    }
+#endif
+}
+
 int main(int argc, char* argv[]) {
     // Core dump
 #ifdef Q_OS_WIN
@@ -154,6 +187,11 @@ int main(int argc, char* argv[]) {
     }
 #ifdef NKR_CPP_USE_APPDATA
     useAppdata = true; // Example: Package & MacOS
+#endif
+#ifdef Q_OS_WIN
+    if (!useAppdata && (isProgramFilesPath(wd.absolutePath()) || !isDirectoryWritable(wd))) {
+        useAppdata = true;
+    }
 #endif
     if(useAppdata) {
         QApplication::setApplicationName("Throne");

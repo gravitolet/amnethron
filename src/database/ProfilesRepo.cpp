@@ -114,7 +114,6 @@ namespace Configs {
                 name TEXT,
                 gid INTEGER NOT NULL DEFAULT 0,
                 latency INTEGER NOT NULL DEFAULT 0,
-                auto_switch_score INTEGER NOT NULL DEFAULT 0,
                 dl_speed TEXT,
                 ul_speed TEXT,
                 test_country TEXT,
@@ -129,25 +128,6 @@ namespace Configs {
         )");
 
         db.exec("CREATE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name)");
-
-        bool hasAutoSwitchScore = false;
-        auto columns = db.query("PRAGMA table_info(profiles)");
-        if (columns) {
-            while (columns->executeStep()) {
-                if (QString::fromStdString(columns->getColumn(1).getText()) == "auto_switch_score") {
-                    hasAutoSwitchScore = true;
-                    break;
-                }
-            }
-        }
-        if (!hasAutoSwitchScore) {
-            db.exec("ALTER TABLE profiles ADD COLUMN auto_switch_score INTEGER NOT NULL DEFAULT 0");
-        }
-        db.exec(
-            "UPDATE profiles SET auto_switch_score = 0 "
-            "WHERE auto_switch_score < ? OR auto_switch_score > ?",
-            Profile::MinAutoSwitchScore,
-            Profile::MaxAutoSwitchScore);
     }
 
     bool ProfilesRepo::shouldEncryptOutboundJson(int gid) const {
@@ -225,7 +205,6 @@ namespace Configs {
         json["id"] = profile->id;
         json["gid"] = profile->gid;
         json["latency"] = profile->latency;
-        json["auto_switch_score"] = Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         json["dl_speed"] = profile->dl_speed;
         json["ul_speed"] = profile->ul_speed;
         json["test_country"] = profile->test_country;
@@ -251,7 +230,6 @@ namespace Configs {
         profile->id = json["id"].toInt();
         profile->gid = json["gid"].toInt();
         profile->latency = json["latency"].toInt();
-        profile->auto_switch_score = Profile::NormalizeAutoSwitchScore(json["auto_switch_score"].toInt());
         profile->dl_speed = json["dl_speed"].toString();
         profile->ul_speed = json["ul_speed"].toString();
         profile->test_country = json["test_country"].toString();
@@ -340,7 +318,6 @@ namespace Configs {
             outboundJson = outboundJsonForStorage(profile->gid, outboundJson);
         }
         QString name = profile->outbound ? profile->outbound->name : QString();
-        const int autoSwitchScore = Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         const long long traffic_dl = static_cast<long long>(profile->traffic_downlink);
         const long long traffic_up = static_cast<long long>(profile->traffic_uplink);
         
@@ -349,17 +326,16 @@ namespace Configs {
         
         if (exists) {
             db.exec(R"(
-                UPDATE profiles 
-                SET type = ?, name = ?, gid = ?, latency = ?, auto_switch_score = ?, dl_speed = ?, ul_speed = ?,
+                UPDATE profiles
+                SET type = ?, name = ?, gid = ?, latency = ?, dl_speed = ?, ul_speed = ?,
                     test_country = ?, ip_out = ?, outbound_json = ?,
                     traffic_dl = ?, traffic_up = ?, updated_at = strftime('%s', 'now')
                 WHERE id = ?
-            )", 
+            )",
                 profile->type.toStdString(),
                 name.toStdString(),
                 profile->gid,
                 profile->latency,
-                autoSwitchScore,
                 profile->dl_speed.toStdString(),
                 profile->ul_speed.toStdString(),
                 profile->test_country.toStdString(),
@@ -371,17 +347,16 @@ namespace Configs {
             );
         } else {
             db.exec(R"(
-                INSERT INTO profiles 
-                (id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country,
+                INSERT INTO profiles
+                (id, type, name, gid, latency, dl_speed, ul_speed, test_country,
                 ip_out, outbound_json, traffic_dl, traffic_up)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             )",
                 id,
                 profile->type.toStdString(),
                 name.toStdString(),
                 profile->gid,
                 profile->latency,
-                autoSwitchScore,
                 profile->dl_speed.toStdString(),
                 profile->ul_speed.toStdString(),
                 profile->test_country.toStdString(),
@@ -406,7 +381,6 @@ namespace Configs {
         row.name = name.toStdString();
         row.gid = gid;
         row.latency = profile->latency;
-        row.auto_switch_score = Profile::NormalizeAutoSwitchScore(profile->auto_switch_score);
         row.dl_speed = profile->dl_speed.toStdString();
         row.ul_speed = profile->ul_speed.toStdString();
         row.test_country = profile->test_country.toStdString();
@@ -424,28 +398,27 @@ namespace Configs {
         json["name"] = QString::fromStdString(stmt.getColumn(2).getText());
         json["gid"] = stmt.getColumn(3).getInt();
         json["latency"] = stmt.getColumn(4).getInt();
-        json["auto_switch_score"] = stmt.getColumn(5).getInt();
-        json["dl_speed"] = QString::fromStdString(stmt.getColumn(6).getText());
-        json["ul_speed"] = QString::fromStdString(stmt.getColumn(7).getText());
-        json["test_country"] = QString::fromStdString(stmt.getColumn(8).getText());
-        json["ip_out"] = QString::fromStdString(stmt.getColumn(9).getText());
-        
-        QString outboundJsonStr = QString::fromStdString(stmt.getColumn(10).getText());
+        json["dl_speed"] = QString::fromStdString(stmt.getColumn(5).getText());
+        json["ul_speed"] = QString::fromStdString(stmt.getColumn(6).getText());
+        json["test_country"] = QString::fromStdString(stmt.getColumn(7).getText());
+        json["ip_out"] = QString::fromStdString(stmt.getColumn(8).getText());
+
+        QString outboundJsonStr = QString::fromStdString(stmt.getColumn(9).getText());
         outboundJsonStr = outboundJsonFromStorage(outboundJsonStr);
         QJsonDocument outboundDoc = QJsonDocument::fromJson(outboundJsonStr.toUtf8());
         if (!outboundDoc.isNull() && outboundDoc.isObject()) {
             json["outbound"] = outboundDoc.object();
         }
         
-        json["traffic_dl"] = static_cast<qint64>(stmt.getColumn(11).getInt64());
-        json["traffic_up"] = static_cast<qint64>(stmt.getColumn(12).getInt64());
+        json["traffic_dl"] = static_cast<qint64>(stmt.getColumn(10).getInt64());
+        json["traffic_up"] = static_cast<qint64>(stmt.getColumn(11).getInt64());
         
         return profileFromJson(json);
     }
 
     std::shared_ptr<Profile> ProfilesRepo::loadFromDatabase(int id) const {
         auto query = db.query(R"(
-            SELECT id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country,
+            SELECT id, type, name, gid, latency, dl_speed, ul_speed, test_country,
                    ip_out, outbound_json, traffic_dl, traffic_up
             FROM profiles WHERE id = ?
         )", id);
@@ -515,7 +488,6 @@ namespace Configs {
         int newId = NewProfileID();
         profile->id = newId;
         profile->gid = gid < 0 ? Configs::dataManager->settingsRepo->current_group : gid;
-        profile->auto_switch_score = 0;
         QMutexLocker locker(&mutex);
         identityMap[newId] = std::weak_ptr<Profile>(profile);
         saveToDatabase(profile.get(), profile->id);
@@ -547,7 +519,6 @@ namespace Configs {
             int id = firstId + i;
             toAdd[i]->id = id;
             toAdd[i]->gid = gid;
-            toAdd[i]->auto_switch_score = 0;
             identityMap[id] = std::weak_ptr<Profile>(toAdd[i]);
         }
 
@@ -588,7 +559,7 @@ namespace Configs {
             if (i > 0) idList += ",";
             idList += QString::number(chunkIds[i]);
         }
-        std::string sql = "SELECT id, type, name, gid, latency, auto_switch_score, dl_speed, ul_speed, test_country, "
+        std::string sql = "SELECT id, type, name, gid, latency, dl_speed, ul_speed, test_country, "
                          "ip_out, outbound_json, traffic_dl, traffic_up FROM profiles WHERE id IN (" +
                          idList.toStdString() + ") ORDER BY id";
         auto query = db.query(sql);

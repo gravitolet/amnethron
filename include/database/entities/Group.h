@@ -27,6 +27,10 @@ namespace Configs
         ul
     };
 
+    // Parse a human bitrate string ("12.34Mbps", "1.5Gbps", "999.00Kbps") into bits/sec.
+    // Returns -1 for "N/A" and 0 for empty/unknown, matching the sort/selection callers.
+    double bitrateToBps(const QString& str);
+
     class Group {
     public:
         QMutex mutex;

@@ -108,8 +108,12 @@ namespace Configs {
     }
 
     QString GetBasePath() {
-        if (Configs::dataManager->settingsRepo->flag_use_appdata) return QStandardPaths::writableLocation(
-              QStandardPaths::AppConfigLocation);
+        if (Configs::dataManager->settingsRepo->flag_use_appdata) {
+            if (!Configs::dataManager->settingsRepo->appdataDir.isEmpty()) {
+                return Configs::dataManager->settingsRepo->appdataDir;
+            }
+            return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+        }
         return qApp->applicationDirPath();
     }
 } // namespace Configs
