@@ -125,33 +125,31 @@ try {
     }
     if ($makensisExitCode -ne 0) { throw "makensis failed with exit code $makensisExitCode" }
 
-    Set-Content -LiteralPath $versionFile -Value $version -NoNewline
-
     $installerDir = Join-Path $repoRoot 'deployment\installer'
     New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
     $versionedInstaller = Join-Path $installerDir "ThroneSetup-$version.exe"
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Destination $versionedInstaller -Force
+    $unversionedInstaller = Join-Path $repoRoot 'ThroneSetup.exe'
+    $builtInstaller = Get-Item -LiteralPath $unversionedInstaller -ErrorAction SilentlyContinue
+    if (-not $builtInstaller -or $builtInstaller.Length -eq 0) {
+        throw "makensis did not produce a non-empty installer: $unversionedInstaller"
+    }
+
+    Copy-Item -LiteralPath $unversionedInstaller -Destination $versionedInstaller -Force
+    $finalInstaller = Get-Item -LiteralPath $versionedInstaller -ErrorAction SilentlyContinue
+    if (-not $finalInstaller -or $finalInstaller.Length -ne $builtInstaller.Length) {
+        throw "Failed to create the final versioned installer: $versionedInstaller"
+    }
+
     Remove-Item -LiteralPath (Join-Path $installerDir 'ThroneSetup.exe') -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath (Join-Path $repoRoot 'ThroneSetup.exe') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $unversionedInstaller -Force -ErrorAction SilentlyContinue
 
-    # The version-description text file must always sit next to the installer.
-    $versionsFile = Join-Path $installerDir 'versions.txt'
-    if (-not (Test-Path -LiteralPath $versionsFile)) {
-        Write-Warning "versions.txt not found next to the installer at $versionsFile. Add a description entry for version $version."
-    } elseif (-not (Select-String -LiteralPath $versionsFile -SimpleMatch -Pattern $version -Quiet)) {
-        Write-Warning "versions.txt does not mention version $version. Add a description entry before publishing."
-    }
+    # Consume the release version only after the final versioned installer exists.
+    Set-Content -LiteralPath $versionFile -Value $version -NoNewline
 
-    $publishDir = 'D:\YandexDisk\Install\Net\vpn\AmneThron'
-    if (Test-Path -LiteralPath $publishDir) {
-        Copy-Item -LiteralPath $versionedInstaller -Destination $publishDir -Force
-        if (Test-Path -LiteralPath $versionsFile) {
-            Copy-Item -LiteralPath $versionsFile -Destination $publishDir -Force
-        }
-    }
 } finally {
     Pop-Location
 }
 
 Write-Output "Built installer version $version"
 Write-Output $versionedInstaller
+Write-Output "Publish this installer with script\publish_github_release.ps1 after committing and pushing the matching source/version."

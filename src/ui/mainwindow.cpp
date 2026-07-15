@@ -71,8 +71,11 @@
 #include <QFrame>
 #include <QPointer>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QShortcut>
+#include <QSignalBlocker>
+#include <QVersionNumber>
 #include <QVBoxLayout>
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
 #include <QStyleHints>
@@ -261,6 +264,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         runOnUiThread([=,this]
         {
             handle_deeplink_impl(url);
+        });
+    };
+    MW_speedtest_profiles = [=,this](const QList<int>& profileIDs) {
+        if (profileIDs.isEmpty()) return;
+        const QList<int> ids = profileIDs;
+        runOnUiThread([=,this]
+        {
+            speedtest_current_group(ids, false, [] {});
         });
     };
 
@@ -473,12 +484,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     setupTopMenuButton(ui->toolButton_server, ui->menu_server);
     setupTopMenuButton(ui->toolButton_routing, ui->menuRouting_Menu);
     ui->menubar->setVisible(false);
-    ui->toolButton_update->setEnabled(false);
+    ui->toolButton_update->setEnabled(true);
     connect(ui->toolButton_update, &QToolButton::clicked, this, [=,this] { runOnNewThread([=,this] { CheckUpdate(); }); });
-    if (!QFile::exists(QApplication::applicationDirPath() + "/updater") && !QFile::exists(QApplication::applicationDirPath() + "/updater.exe"))
-    {
-        ui->toolButton_update->hide();
-    }
 
     // setup connection UI
     setupConnectionList();
@@ -517,17 +524,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         if (row1 == row2) return;
         auto group = Configs::dataManager->groupsRepo->CurrentGroup();
         group->EmplaceProfile(row1, row2);
+        group->sort_method = GroupSortMethod::Raw;
+        group->sort_descending = false;
         profilesTableModel->emplaceProfiles(row1, row2);
         Configs::dataManager->groupsRepo->Save(group);
+        updateProfileSortIndicator(group);
     };
     connect(ui->profilesTableView->horizontalHeader(), &QHeaderView::sectionClicked, this, [=, this](int logicalIndex) {
         GroupSortAction action;
-        if (proxy_last_order == logicalIndex) {
-            action.descending = true;
-            proxy_last_order = -1;
-        } else {
-            proxy_last_order = logicalIndex;
-        }
         if (logicalIndex == 0) {
             action.method = GroupSortMethod::ByType;
         } else if (logicalIndex == 1) {
@@ -541,8 +545,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         } else {
             return;
         }
+        auto selectedGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+        if (selectedGroup == nullptr) return;
+        action.descending = selectedGroup->sort_method == action.method
+            ? !selectedGroup->sort_descending
+            : false;
         runOnNewThread([=, this] {
-            auto currGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+            auto currGroup = Configs::dataManager->groupsRepo->GetGroup(selectedGroup->id);
             if (currGroup == nullptr) return;
             if (!currGroup->SortProfiles(action)) {
                 runOnUiThread([=] {
@@ -552,6 +561,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             }
             Configs::dataManager->groupsRepo->Save(currGroup);
             runOnUiThread([=, this] {
+                auto visibleGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+                if (!visibleGroup || visibleGroup->id != currGroup->id) return;
+                updateProfileSortIndicator(currGroup);
                 refresh_proxy_list({}, true);
             });
         });
@@ -626,12 +638,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
             int testSortBy = chosen->data().toInt();
             group->test_sort_by = static_cast<Configs::testBy>(testSortBy);
-            Configs::dataManager->groupsRepo->Save(group);
             GroupSortAction action;
             action.method = GroupSortMethod::ByTestResult;
-            action.descending = true;
+            action.descending = group->test_sort_by == Configs::testBy::dlSpeed ||
+                                group->test_sort_by == Configs::testBy::ulSpeed;
             runOnNewThread([=, this] {
-                auto currGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+                auto currGroup = Configs::dataManager->groupsRepo->GetGroup(group->id);
                 if (currGroup == nullptr) return;
                 if (!currGroup->SortProfiles(action)) {
                     runOnUiThread([=] {
@@ -641,6 +653,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
                 }
                 Configs::dataManager->groupsRepo->Save(currGroup);
                 runOnUiThread([=, this] {
+                    auto visibleGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+                    if (!visibleGroup || visibleGroup->id != currGroup->id) return;
+                    updateProfileSortIndicator(currGroup);
                     refresh_proxy_list({}, true);
                     });
                 });
@@ -670,12 +685,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
             int trafficSortBy = chosen->data().toInt();
             group->traffic_sort_by = static_cast<Configs::trafficBy>(trafficSortBy);
-            Configs::dataManager->groupsRepo->Save(group);
             GroupSortAction action;
             action.method = GroupSortMethod::ByTraffic;
-            action.descending = false;
+            action.descending = true;
             runOnNewThread([=, this] {
-                auto currGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+                auto currGroup = Configs::dataManager->groupsRepo->GetGroup(group->id);
                 if (currGroup == nullptr) return;
                 if (!currGroup->SortProfiles(action)) {
                     runOnUiThread([=] {
@@ -683,13 +697,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
                         });
                     return;
                 }
-                Configs::dataManager->groupsRepo->Save(Configs::dataManager->groupsRepo->CurrentGroup());
+                Configs::dataManager->groupsRepo->Save(currGroup);
                 runOnUiThread([=, this] {
-                    refresh_proxy_list();
+                    auto visibleGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+                    if (!visibleGroup || visibleGroup->id != currGroup->id) return;
+                    updateProfileSortIndicator(currGroup);
+                    refresh_proxy_list({}, true);
                     });
                 });
             return;
         }
+    });
+    connect(profilesTableModel, &ProfilesTableModel::autoSwitchSelectionChanged, this, [this](int groupId) {
+        auto group = Configs::dataManager->groupsRepo->CurrentGroup();
+        if (group && group->id == groupId) updateAutoSwitchSelectionUi();
     });
     ui->profilesTableView->verticalHeader()->setStretchLastSection(false);
     ui->profilesTableView->verticalHeader()->setDefaultSectionSize(24);
@@ -863,6 +884,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     connect(ui->checkBox_AutoSwitch, &QCheckBox::clicked, this, [=,this](bool checked) {
         Configs::dataManager->settingsRepo->auto_switch_enabled = checked;
         Configs::dataManager->settingsRepo->Save();
+    });
+    connect(ui->checkBox_AutoSwitchAll, &QCheckBox::clicked, this, [this](bool checked) {
+        auto group = Configs::dataManager->groupsRepo->CurrentGroup();
+        if (!group) return;
+        group->SetAllAutoSwitchProfiles(checked);
+        Configs::dataManager->groupsRepo->Save(group);
+        refresh_proxy_list();
+        updateAutoSwitchSelectionUi();
     });
     connect(ui->menu_spmode, &QMenu::aboutToShow, this, [=,this]() {
         ui->menu_spmode_disabled->setChecked(!(Configs::dataManager->settingsRepo->spmode_system_proxy || Configs::dataManager->settingsRepo->spmode_vpn));
@@ -1327,6 +1356,7 @@ void MainWindow::dropEvent(QDropEvent* event)
 }
 
 MainWindow::~MainWindow() {
+    MW_speedtest_profiles = nullptr;
     delete ui;
 }
 
@@ -1378,6 +1408,8 @@ void MainWindow::show_group(int gid) {
 
     // show proxies
     refresh_proxy_list({}, true);
+    updateProfileSortIndicator(group);
+    updateAutoSwitchSelectionUi();
 
     int rowCount = profilesTableModel->rowCount();
     int targetRow = group->scroll_last_profile;
@@ -2219,6 +2251,7 @@ void MainWindow::refresh_proxy_list_column_size() {
             hHeader->setSectionResizeMode(2, QHeaderView::Stretch);
             hHeader->setSectionResizeMode(3, QHeaderView::ResizeToContents);
             hHeader->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+            hHeader->setSectionResizeMode(5, QHeaderView::ResizeToContents);
             if (!group->calculated_column_width.empty() && group->calculated_column_width[0] > hHeader->sectionSize(0)) {
                 hHeader->setSectionResizeMode(0, QHeaderView::Fixed);
                 hHeader->resizeSection(0, group->calculated_column_width[0]);
@@ -2269,6 +2302,7 @@ void MainWindow::refresh_proxy_list_impl(const QList<int>& ids, bool mayNeedRese
     refresh_proxy_list_impl_refresh_data(ids, mayNeedReset);
     // now refresh column sizes
     refresh_proxy_list_column_size();
+    updateAutoSwitchSelectionUi();
 }
 
 void MainWindow::refresh_proxy_list_impl_refresh_data(const QList<int>& ids, bool mayNeedReset) {
@@ -2282,6 +2316,77 @@ void MainWindow::refresh_proxy_list_impl_refresh_data(const QList<int>& ids, boo
         auto profileIDs = filterProfilesList(currentGroup->profiles);
         profilesTableModel->refreshTable(profileIDs, mayNeedReset);
     }
+}
+
+bool MainWindow::sortGroupUsingSavedPreference(const std::shared_ptr<Configs::Group>& group, bool waitForLock) {
+    if (!group || group->sort_method == GroupSortMethod::Raw) return false;
+    GroupSortAction action;
+    action.method = group->sort_method;
+    action.descending = group->sort_descending;
+    if (!group->SortProfiles(action, waitForLock)) return false;
+    Configs::dataManager->groupsRepo->Save(group);
+    return true;
+}
+
+void MainWindow::refreshProfileAfterTest(int profileId) {
+    auto profile = Configs::dataManager->profilesRepo->GetProfile(profileId);
+    if (!profile) return;
+    auto group = Configs::dataManager->groupsRepo->GetGroup(profile->gid);
+    if (!group) return;
+    const bool sorted = sortGroupUsingSavedPreference(group, true);
+    const int groupId = group->id;
+    runOnUiThread([=, this] {
+        auto currentGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+        if (!currentGroup || currentGroup->id != groupId) return;
+        if (sorted) {
+            updateProfileSortIndicator(currentGroup);
+            refresh_proxy_list({}, true);
+        } else {
+            refresh_proxy_list({profileId});
+        }
+    });
+}
+
+void MainWindow::updateProfileSortIndicator(const std::shared_ptr<Configs::Group>& group) {
+    auto *header = ui->profilesTableView->horizontalHeader();
+    if (!group || group->sort_method == GroupSortMethod::Raw) {
+        header->setSortIndicatorShown(false);
+        return;
+    }
+
+    int column = -1;
+    switch (group->sort_method) {
+    case GroupSortMethod::ByType: column = 0; break;
+    case GroupSortMethod::ByAddress: column = 1; break;
+    case GroupSortMethod::ByName: column = 2; break;
+    case GroupSortMethod::ByTestResult: column = 3; break;
+    case GroupSortMethod::ByTraffic: column = 4; break;
+    default: break;
+    }
+    if (column < 0) {
+        header->setSortIndicatorShown(false);
+        return;
+    }
+    header->setSortIndicatorShown(true);
+    header->setSortIndicator(column, group->sort_descending ? Qt::DescendingOrder : Qt::AscendingOrder);
+}
+
+void MainWindow::updateAutoSwitchSelectionUi() {
+    auto group = Configs::dataManager->groupsRepo->CurrentGroup();
+    QSignalBlocker blocker(ui->checkBox_AutoSwitchAll);
+    if (!group || group->profiles.isEmpty()) {
+        ui->checkBox_AutoSwitchAll->setEnabled(false);
+        ui->checkBox_AutoSwitchAll->setCheckState(Qt::Unchecked);
+        return;
+    }
+
+    ui->checkBox_AutoSwitchAll->setEnabled(true);
+    const int selected = group->AutoSwitchProfileCount();
+    if (selected == 0) ui->checkBox_AutoSwitchAll->setCheckState(Qt::Unchecked);
+    else if (selected == group->profiles.size()) ui->checkBox_AutoSwitchAll->setCheckState(Qt::Checked);
+    else ui->checkBox_AutoSwitchAll->setCheckState(Qt::PartiallyChecked);
+    ui->checkBox_AutoSwitchAll->setToolTip(
+        tr("Selected for auto-switch: %1 of %2").arg(selected).arg(group->profiles.size()));
 }
 
 // table菜单相关
@@ -3272,113 +3377,27 @@ bool MainWindow::StopVPNProcess() {
     return true;
 }
 
-bool isNewer(QString assetName) {
-    if (QString(NKR_VERSION).isEmpty()) return false;
-    assetName = assetName.mid(7); // take out Throne-
-    QString version;
-    auto spl = assetName.split('-');
-    version += spl[0]; // version: 1.2.3
-    if (spl[1].contains("beta") || spl[1].contains("alpha") || spl[1].contains("rc")) version += "."+spl[1]; // .beta.13
-    auto parts = version.split("."); // [1,2,3,beta,13]
-    auto currentParts = QString(NKR_VERSION).replace("-", ".").split('.');
-    if (parts.size() < 3 || currentParts.size() < 3)
-    {
-        MW_show_log("Version strings seem to be invalid" + QString(NKR_VERSION) + " and " + version);
+bool isNewer(const QString& versionText) {
+    static const QRegularExpression versionPattern(R"((\d+(?:\.\d+){2,3}))");
+    const auto candidateMatch = versionPattern.match(versionText);
+    const auto currentMatch = versionPattern.match(QString(NKR_VERSION));
+    if (!candidateMatch.hasMatch() || !currentMatch.hasMatch()) {
+        MW_show_log("Version strings seem to be invalid: " + QString(NKR_VERSION) + " and " + versionText);
         return false;
     }
-    std::vector<int> verNums;
-    std::vector<int> currNums;
-    // add base version first
-    verNums.push_back(parts[0].toInt());
-    verNums.push_back(parts[1].toInt());
-    verNums.push_back(parts[2].toInt());
-    if (parts.size() > 3)
-    {
-        if (parts[3] == "alpha") verNums.push_back(1);
-        if (parts[3] == "beta") verNums.push_back(2);
-        if (parts[3] == "rc") verNums.push_back(3);
-        if (parts.size() > 4) verNums.push_back(parts[4].toInt());
-    }
-
-    currNums.push_back(currentParts[0].toInt());
-    currNums.push_back(currentParts[1].toInt());
-    currNums.push_back(currentParts[2].toInt());
-    if (currentParts.size() > 3)
-    {
-        if (currentParts[3] == "alpha") currNums.push_back(1);
-        if (currentParts[3] == "beta") currNums.push_back(2);
-        if (currentParts[3] == "rc") currNums.push_back(3);
-        if (currentParts.size() > 4) currNums.push_back(currentParts[4].toInt());
-    }
-
-    if (verNums.size() < 3 || currNums.size() < 3)
-    {
-        MW_show_log("Version strings seem to be invalid" + QString(NKR_VERSION) + " and " + version);
-        return false;
-    }
-
-    for (int i=0;i<3;i++)
-    {
-        if (verNums[i] > currNums[i]) return true;
-        if (verNums[i] < currNums[i]) return false;
-    }
-
-    // equal base version, check beta-ness
-    if (verNums.size() == 5 && currNums.size() == 3) return false;
-    if (verNums.size() == 3 && currNums.size() == 5) return true;
-    if (verNums.size() == 5 && currNums.size() == 5)
-    {
-        for (int i=3;i<5;i++)
-        {
-            if (verNums[i] > currNums[i]) return true;
-            if (verNums[i] < currNums[i]) return false;
-        }
-    } else
-    {
-		MW_show_log("There are no updates. You have the latest version - " + QString(NKR_VERSION));
-        return false;
-    }
-    return false;
+    const auto candidate = QVersionNumber::fromString(candidateMatch.captured(1));
+    const auto current = QVersionNumber::fromString(currentMatch.captured(1));
+    return QVersionNumber::compare(candidate, current) > 0;
 }
 
 void MainWindow::CheckUpdate() {
-    QString search;
-#ifdef Q_OS_WIN
-#  ifdef Q_PROCESSOR_ARM_64
-    search = "windows-arm64";
-#  else
-#    ifdef Q_OS_WIN64
-        if (WinVersion::IsBuildNumGreaterOrEqual(BuildNumber::Windows_10_1809))
-            search = "windows64";
-        else
-	        search = "windowslegacy64";
-#    else
-	    search = "windows32";
-#    endif
-#  endif
-#endif
-#ifdef Q_OS_LINUX
-#  ifdef Q_PROCESSOR_X86_64
-    search = "linux-amd64";
-#  else
-    search = "linux-arm64";
-#  endif
-#endif
-#ifdef Q_OS_MACOS
-#  ifdef Q_PROCESSOR_X86_64
-	search = "macos-amd64";
-#  else
-	search = "macos-arm64";
-#  endif
-#endif
-    if (search.isEmpty()) {
-        runOnUiThread([=,this] {
-            MessageBoxWarning(QObject::tr("Update"), QObject::tr("Not official support platform"));
-        });
-        return;
-    }
-
-    auto resp = NetworkRequestHelper::HttpGet("https://api.github.com/repos/throneproj/Throne/releases");
+#if !defined(Q_OS_WIN64) || defined(Q_PROCESSOR_ARM_64)
+    runOnUiThread([=,this] {
+        MessageBoxWarning(QObject::tr("Update"), QObject::tr("Not official support platform"));
+    });
+    return;
+#else
+    auto resp = NetworkRequestHelper::HttpGet("https://api.github.com/repos/gravitolet/amnethron/releases");
     if (!resp.error.isEmpty()) {
         runOnUiThread([=,this] {
             MessageBoxWarning(QObject::tr("Update"), QObject::tr("Requesting update error: %1").arg(resp.error + "\n" + resp.data));
@@ -3386,27 +3405,30 @@ void MainWindow::CheckUpdate() {
         return;
     }
 
-    QString assets_name, release_download_url, release_url, release_note, note_pre_release;
-    bool exitFlag = false;
+    QString assets_name, release_download_url, release_url, release_note, release_version, note_pre_release;
+    static const QRegularExpression installerPattern(R"(^ThroneSetup-(\d+(?:\.\d+){2,3})\.exe$)",
+                                                     QRegularExpression::CaseInsensitiveOption);
     QJsonArray array = QString2QJsonArray(resp.data);
     for (const QJsonValue value : array) {
         QJsonObject release = value.toObject();
+        if (release["draft"].toBool()) continue;
         if (release["prerelease"].toBool() && !Configs::dataManager->settingsRepo->allow_beta_update) continue;
         for (const QJsonValue asset : release["assets"].toArray()) {
-            if (asset["name"].toString().contains(search) && asset["name"].toString().section('.', -1) == QString("zip")) {
-                note_pre_release = release["prerelease"].toBool() ? " (Pre-release)" : "";
-                release_url = release["html_url"].toString();
-                release_note = release["body"].toString();
-                assets_name = asset["name"].toString();
-                release_download_url = asset["browser_download_url"].toString();
-                exitFlag = true;
-                break;
-            }
+            const QString assetName = asset["name"].toString();
+            const auto match = installerPattern.match(assetName);
+            if (!match.hasMatch() || !isNewer(match.captured(1))) continue;
+            note_pre_release = release["prerelease"].toBool() ? " (Pre-release)" : "";
+            release_url = release["html_url"].toString();
+            release_note = release["body"].toString();
+            release_version = match.captured(1);
+            assets_name = assetName;
+            release_download_url = asset["browser_download_url"].toString();
+            break;
         }
-        if (exitFlag) break;
+        if (!release_download_url.isEmpty()) break;
     }
 
-    if (release_download_url.isEmpty() || !isNewer(assets_name)) {
+    if (release_download_url.isEmpty()) {
         runOnUiThread([=,this] {
             MessageBoxInfo(QObject::tr("Update"), QObject::tr("No update"));
         });
@@ -3414,20 +3436,16 @@ void MainWindow::CheckUpdate() {
     }
 
     runOnUiThread([=,this] {
-        auto allow_updater = !Configs::dataManager->settingsRepo->flag_use_appdata;
         QMessageBox box(QMessageBox::Question, QObject::tr("Update") + note_pre_release,
-                        QObject::tr("Update found: %1\nRelease note:\n%2").arg(assets_name, release_note));
+                        QObject::tr("Update found: %1\nRelease note:\n%2").arg(release_version, release_note));
         //
-        QAbstractButton *btn1 = nullptr;
-        if (allow_updater) {
-            btn1 = box.addButton(QObject::tr("Update"), QMessageBox::AcceptRole);
-        }
+        QAbstractButton *btn1 = box.addButton(QObject::tr("Update"), QMessageBox::AcceptRole);
         QAbstractButton *btn2 = box.addButton(QObject::tr("Open in browser"), QMessageBox::AcceptRole);
         box.addButton(QObject::tr("Close"), QMessageBox::RejectRole);
         box.exec();
         //
-        if (btn1 == box.clickedButton() && allow_updater) {
-            // Download Update
+        if (btn1 == box.clickedButton()) {
+            // Download the versioned installer from this project's GitHub Release.
             runOnNewThread([=,this] {
                 if (!mu_download_update.tryLock()) {
                     runOnUiThread([=,this](){
@@ -3437,7 +3455,7 @@ void MainWindow::CheckUpdate() {
                 }
                 QString errors;
                 if (!release_download_url.isEmpty()) {
-                    auto res = NetworkRequestHelper::DownloadAsset(release_download_url, "Throne.zip");
+                    auto res = NetworkRequestHelper::DownloadAsset(release_download_url, assets_name);
                     if (!res.isEmpty()) {
                         errors += res;
                     }
@@ -3446,10 +3464,15 @@ void MainWindow::CheckUpdate() {
                 runOnUiThread([=,this] {
                     if (errors.isEmpty()) {
                         auto q = QMessageBox::question(nullptr, QObject::tr("Update"),
-                                                       QObject::tr("Update is ready, restart to install?"));
+                                                       QObject::tr("The installer is ready. Close Throne and start the update?"));
                         if (q == QMessageBox::StandardButton::Yes) {
-                            this->exit_reason = 1;
-                            on_menu_exit_triggered();
+                            const QString installerPath = QDir(Configs::GetBasePath()).filePath(assets_name);
+                            if (!QProcess::startDetached(installerPath, {})) {
+                                MessageBoxWarning(tr("Failed to start installer"), installerPath);
+                                return;
+                            }
+                            prepare_exit();
+                            QCoreApplication::quit();
                         }
                     } else {
                         MessageBoxWarning(tr("Failed to download update assets"), errors);
@@ -3460,4 +3483,5 @@ void MainWindow::CheckUpdate() {
             QDesktopServices::openUrl(QUrl(release_url));
         }
     });
+#endif
 }

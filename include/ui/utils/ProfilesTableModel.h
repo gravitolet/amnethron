@@ -26,6 +26,7 @@ public:
     QStringList mimeTypes() const override;
     QMimeData *mimeData(const QModelIndexList &indexes) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
     // Set the list of profile IDs (filtered, display order). Emits layoutChanged.
@@ -44,6 +45,9 @@ public:
 
     // Row label for vertical header: "✓" for running row, else "row+1  ".
     QString rowLabel(int row) const;
+
+signals:
+    void autoSwitchSelectionChanged(int groupId);
 
 private:
     void ensureCached(int profileId) const;

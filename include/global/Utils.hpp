@@ -4,6 +4,7 @@
 #include <functional>
 #include <memory>
 #include <QObject>
+#include <QList>
 #include <QString>
 #include <QStringList>
 #include <QDebug>
@@ -98,6 +99,7 @@ namespace MwArg {
 }
 
 inline std::function<void(MwMessage, QStringList)> MW_dialog_message;
+inline std::function<void(const QList<int>&)> MW_speedtest_profiles;
 // Handles a "throne://" deeplink. Set by MainWindow; marshals to the UI thread.
 inline std::function<void(QString)> MW_handle_deeplink;
 

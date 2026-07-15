@@ -89,7 +89,7 @@ void MainWindow::runURLTest(const QString& config, const QString& xrayConfig, bo
                 if (entid == -1) {
                     continue;
                 }
-                profileIDs << entID;
+                profileIDs << entid;
                 auto ent = Configs::dataManager->profilesRepo->GetProfile(entid);
                 if (ent == nullptr) {
                     continue;
@@ -105,6 +105,7 @@ void MainWindow::runURLTest(const QString& config, const QString& xrayConfig, bo
                     }
                 }
                 Configs::dataManager->profilesRepo->Save(ent);
+                refreshProfileAfterTest(ent->id);
                 needRefresh = true;
             }
             if (needRefresh)
@@ -150,6 +151,7 @@ void MainWindow::runURLTest(const QString& config, const QString& xrayConfig, bo
             }
         }
         Configs::dataManager->profilesRepo->Save(ent);
+        refreshProfileAfterTest(ent->id);
     }
 }
 
@@ -215,6 +217,7 @@ void MainWindow::runIPTest(const QString& config, const QString& xrayConfig, boo
                     ent->test_country.clear();
                 }
                 Configs::dataManager->profilesRepo->Save(ent);
+                refreshProfileAfterTest(ent->id);
                 needRefresh = true;
             }
             if (needRefresh)
@@ -261,6 +264,7 @@ void MainWindow::runIPTest(const QString& config, const QString& xrayConfig, boo
             ent->test_country.clear();
         }
         Configs::dataManager->profilesRepo->Save(ent);
+        refreshProfileAfterTest(ent->id);
     }
 }
 
@@ -455,6 +459,8 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
         // this tick and let the next one run once the current test finishes.
         if (!onFinished) {
             MessageBoxWarning(software_name, tr("The last test did not finish completely, please wait. If it persists, please restart the program."));
+        } else {
+            MW_show_log(tr("Speedtest skipped: another test is already running."));
         }
         return;
     }
@@ -508,7 +514,7 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
     });
 }
 
-void MainWindow::querySpeedtest(const QMap<QString, int>& tag2entID, bool testCurrent)
+void MainWindow::querySpeedtest(const QMap<QString, int>& tag2entID, bool testCurrent, int entID)
 {
     bool ok;
     auto res = defaultClient->QueryCurrentSpeedTests(&ok);
@@ -516,7 +522,10 @@ void MainWindow::querySpeedtest(const QMap<QString, int>& tag2entID, bool testCu
     {
         return;
     }
-    auto profile = testCurrent ? running : Configs::dataManager->profilesRepo->GetProfile(tag2entID[QString::fromStdString(res.result.value().outbound_tag.value())]);
+    if (!testCurrent && !tag2entID.empty()) {
+        entID = tag2entID.count(QString::fromStdString(res.result.value().outbound_tag.value())) == 0 ? -1 : tag2entID[QString::fromStdString(res.result.value().outbound_tag.value())];
+    }
+    auto profile = testCurrent ? running : Configs::dataManager->profilesRepo->GetProfile(entID);
     if (profile == nullptr)
     {
         return;
@@ -537,7 +546,7 @@ void MainWindow::querySpeedtest(const QMap<QString, int>& tag2entID, bool testCu
     });
 }
 
-void MainWindow::queryCountryTest(const QMap<QString, int>& tag2entID, bool testCurrent)
+void MainWindow::queryCountryTest(const QMap<QString, int>& tag2entID, bool testCurrent, int entID)
 {
     bool ok;
     auto res = defaultClient->QueryCountryTestResults(&ok);
@@ -549,7 +558,10 @@ void MainWindow::queryCountryTest(const QMap<QString, int>& tag2entID, bool test
     {
         dataViewHtmlGenerator_.addTestProgress();
         UpdateDataView();
-        auto profile = testCurrent ? running : Configs::dataManager->profilesRepo->GetProfile(tag2entID[QString::fromStdString(result.outbound_tag.value())]);
+        if (!testCurrent && !tag2entID.empty()) {
+            entID = tag2entID.count(QString::fromStdString(result.outbound_tag.value())) == 0 ? -1 : tag2entID[QString::fromStdString(result.outbound_tag.value())];
+        }
+        auto profile = testCurrent ? running : Configs::dataManager->profilesRepo->GetProfile(entID);
         if (profile == nullptr)
         {
             return;
@@ -611,10 +623,10 @@ void MainWindow::runSpeedTest(const QString& config, const QString& xrayConfig, 
             }
             if (speedtestConf == Configs::TestConfig::COUNTRY)
             {
-                queryCountryTest(tag2entID, testCurrent);
+                queryCountryTest(tag2entID, testCurrent, entID);
             } else
             {
-                querySpeedtest(tag2entID, testCurrent);
+                querySpeedtest(tag2entID, testCurrent, entID);
             }
         }
         doneMu->unlock();
@@ -628,7 +640,7 @@ void MainWindow::runSpeedTest(const QString& config, const QString& xrayConfig, 
 
     for (const auto &res: result.results) {
         if (testCurrent) entID = running ? running->id : -1;
-        else {
+        else if (!tag2entID.empty()) {
             entID = tag2entID.count(QString::fromStdString(res.outbound_tag.value())) == 0 ? -1 : tag2entID[QString::fromStdString(res.outbound_tag.value())];
         }
         if (entID == -1) {
@@ -657,6 +669,7 @@ void MainWindow::runSpeedTest(const QString& config, const QString& xrayConfig, 
             MW_show_log(tr("[%1] speed test error: %2").arg(ent->outbound->DisplayTypeAndName(), QString::fromStdString(res.error.value())));
         }
         Configs::dataManager->profilesRepo->Save(ent);
+        refreshProfileAfterTest(ent->id);
     }
 }
 
@@ -720,30 +733,27 @@ bool MainWindow::healthCheckCurrentProfile(const std::shared_ptr<Configs::Profil
     return true;
 }
 
-qint64 MainWindow::profileCombinedSpeed(const std::shared_ptr<Configs::Profile>& ent) const {
+long double MainWindow::profileSpeedProduct(const std::shared_ptr<Configs::Profile>& ent) const {
     if (ent == nullptr) return 0;
-    // bitrateToBps returns -1 for "N/A" and 0 for empty/unknown; clamp both to 0 so a server
-    // without a measurement for one direction is simply not credited for it. Summing download
-    // and upload ensures both directions are taken into account when ranking servers.
-    const double dl = Configs::bitrateToBps(ent->dl_speed);
-    const double ul = Configs::bitrateToBps(ent->ul_speed);
-    const double combined = std::max(0.0, dl) + std::max(0.0, ul);
-    return static_cast<qint64>(combined);
+    const long double dl = std::max(0.0L, static_cast<long double>(Configs::bitrateToBps(ent->dl_speed)));
+    const long double ul = std::max(0.0L, static_cast<long double>(Configs::bitrateToBps(ent->ul_speed)));
+    return dl * ul;
 }
 
 std::shared_ptr<Configs::Profile> MainWindow::selectFastestBySpeed(const std::shared_ptr<Configs::Group>& group) const {
     if (group == nullptr) return nullptr;
 
     std::shared_ptr<Configs::Profile> best = nullptr;
-    qint64 bestSpeed = -1;
+    long double bestSpeedProduct = -1;
     for (int id : group->Profiles()) {
+        if (!group->IsAutoSwitchProfile(id)) continue;
         auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
         if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
         if (profile->type == "direct") continue;
         if (profile->latency < 0) continue; // known unavailable in the last test
-        const qint64 speed = profileCombinedSpeed(profile);
-        if (speed > bestSpeed) {
-            bestSpeed = speed;
+        const long double speedProduct = profileSpeedProduct(profile);
+        if (speedProduct > bestSpeedProduct) {
+            bestSpeedProduct = speedProduct;
             best = profile;
         }
     }
@@ -757,6 +767,7 @@ std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const st
     QList<std::shared_ptr<Configs::Profile>> candidates;
     for (int id : groupProfileIds) {
         if (triedIds.contains(id)) continue;
+        if (!group->IsAutoSwitchProfile(id)) continue;
         auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
         if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
         if (profile->type == "direct") continue;
@@ -770,14 +781,14 @@ std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const st
         return 1000000;
     };
 
-    // Prefer the fastest by measured combined speed; fall back to latency then group order
+    // Prefer the best download*upload product; fall back to latency then group order
     // so untested servers still get tried in a stable, sensible sequence.
     std::sort(candidates.begin(), candidates.end(),
               [&](const std::shared_ptr<Configs::Profile>& a, const std::shared_ptr<Configs::Profile>& b) {
-                  const qint64 speedA = profileCombinedSpeed(a);
-                  const qint64 speedB = profileCombinedSpeed(b);
-                  if (speedA != speedB) {
-                      return speedA > speedB;
+                  const long double productA = profileSpeedProduct(a);
+                  const long double productB = profileSpeedProduct(b);
+                  if (productA != productB) {
+                      return productA > productB;
                   }
                   const int latencyA = latencyRank(a);
                   const int latencyB = latencyRank(b);
@@ -822,24 +833,24 @@ void MainWindow::autoSwitchBySpeed() {
     auto best = selectFastestBySpeed(group);
     if (best == nullptr || best->id == running->id) return;
 
-    const qint64 currentSpeed = profileCombinedSpeed(running);
-    const qint64 bestSpeed = profileCombinedSpeed(best);
-    if (bestSpeed <= 0) return;
+    const long double currentSpeedProduct = profileSpeedProduct(running);
+    const long double bestSpeedProduct = profileSpeedProduct(best);
+    if (bestSpeedProduct <= 0) return;
 
     int threshold = Configs::dataManager->settingsRepo->auto_switch_speed_threshold;
     if (threshold < 0) threshold = 0;
 
     bool shouldSwitch;
-    if (currentSpeed <= 0) {
+    if (currentSpeedProduct <= 0) {
         // No usable measurement for the running server: any faster peer wins.
         shouldSwitch = true;
     } else {
-        shouldSwitch = bestSpeed >= currentSpeed * (100 + threshold) / 100;
+        shouldSwitch = bestSpeedProduct * 100.0L >= currentSpeedProduct * (100.0L + threshold);
     }
     if (!shouldSwitch) return;
 
     const int bestId = best->id;
-    MW_show_log(tr("Auto-switch by speed: switching to %1 (faster than the current server by at least %2%)")
+    MW_show_log(tr("Auto-switch by speed product: switching to %1 (better than the current server by at least %2%)")
         .arg(best->outbound ? best->outbound->DisplayTypeAndName() : best->name)
         .arg(threshold));
     runOnUiThread([=, this] { profile_start(bestId); });
@@ -1037,6 +1048,7 @@ void MainWindow::profile_start(int _id) {
                 if (healthCheckCurrentProfile(currentEnt, healthError, healthLatency)) {
                     if (healthLatency > 0) currentEnt->latency = healthLatency;
                     Configs::dataManager->profilesRepo->Save(currentEnt);
+                    refreshProfileAfterTest(currentEnt->id);
                     MW_show_log("<<<<<<<< " + tr("Profile %1 is available (%2 ms)").arg(currentEnt->outbound->DisplayTypeAndName()).arg(healthLatency));
                     startedAndAvailable = true;
                     break;

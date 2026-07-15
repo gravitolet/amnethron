@@ -260,14 +260,34 @@ QToolButton::menu-indicator {
        </layout>
       </item>
       <item>
-       <widget class="QCheckBox" name="checkBox_AutoSwitch">
-        <property name="toolTip">
-         <string>Автоматически переключаться на следующий сервер в группе, если текущий недоступен</string>
+       <layout class="QVBoxLayout" name="verticalLayout_auto_switch">
+        <property name="spacing">
+         <number>2</number>
         </property>
-        <property name="text">
-         <string>Автопереключение</string>
-        </property>
-       </widget>
+        <item>
+         <widget class="QCheckBox" name="checkBox_AutoSwitch">
+          <property name="toolTip">
+           <string>Автоматически переключаться только на отмеченные серверы в группе, если текущий недоступен или медленнее</string>
+          </property>
+          <property name="text">
+           <string>Автопереключение</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_AutoSwitchAll">
+          <property name="toolTip">
+           <string>Выбрать или снять выбор со всех серверов текущей группы для автопереключения</string>
+          </property>
+          <property name="text">
+           <string>Все</string>
+          </property>
+          <property name="tristate">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
        <widget class="QTextBrowser" name="data_view">

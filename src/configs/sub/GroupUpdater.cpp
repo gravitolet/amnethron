@@ -1085,18 +1085,7 @@ namespace Subscription {
             group->sub_last_update = QDateTime::currentMSecsSinceEpoch() / 1000;
             group->info = sub_user_info;
             Configs::dataManager->groupsRepo->Save(group);
-            //
-            if (Configs::dataManager->settingsRepo->sub_clear) {
-                MW_show_log(QObject::tr("Clearing servers..."));
-                if (!Configs::dataManager->profilesRepo->BatchDeleteProfiles(group->profiles, Configs::dataManager->settingsRepo->allow_stopping_active_profile)) {
-                    runOnUiThread([=] {
-                        MessageBoxWarning("Internal Error", "DB Error when deleting profiles, Please try again.");
-                    });
-                    return;
-                }
-            } else {
-                in = Configs::dataManager->profilesRepo->GetProfileBatch(group->Profiles());
-            }
+            in = Configs::dataManager->profilesRepo->GetProfileBatch(group->Profiles());
         }
 
         MW_show_log(">>>>>>>> " + QObject::tr("Processing subscription data..."));
@@ -1110,86 +1099,91 @@ namespace Subscription {
             out_all = Configs::dataManager->profilesRepo->GetProfileBatch(group->Profiles());;
 
             QString change_text;
+            QList<int> newProfileIDs;
 
-            if (Configs::dataManager->settingsRepo->sub_clear) {
-                // all is new profile
-                if (out_all.size() >= 1000) {
-                    change_text += "[+] " + Int2String(out_all.size()) + " profiles\n";
-                } else {
-                    for (const auto &ent: out_all) {
-                        change_text += "[+] " + ent->outbound->DisplayTypeAndName() + "\n";
-                    }
+            QList<std::shared_ptr<Configs::Profile>> update_keep;
+            QList<std::shared_ptr<Configs::Profile>> update_del;
+            QList<std::shared_ptr<Configs::Profile>> only_out;
+            QList<std::shared_ptr<Configs::Profile>> only_in;
+            QList<std::shared_ptr<Configs::Profile>> out;
+            // Keep unchanged profiles so their saved test results survive subscription refresh.
+            Configs::ProfileFilter::OnlyInSrc_ByPointer(out_all, in, out);
+            Configs::ProfileFilter::OnlyInSrc(in, out, only_in, false);
+            Configs::ProfileFilter::OnlyInSrc(out, in, only_out, false);
+            Configs::ProfileFilter::Common(in, out, update_keep, update_del, false);
+            QString notice_added;
+            QString notice_deleted;
+            if (only_out.size() < 1000)
+            {
+                for (const auto &ent: only_out) {
+                    notice_added += "[+] " + ent->outbound->DisplayTypeAndName() + "\n";
                 }
-            } else {
-                QList<std::shared_ptr<Configs::Profile>> update_keep;
-                QList<std::shared_ptr<Configs::Profile>> update_del;
-                QList<std::shared_ptr<Configs::Profile>> only_out;
-                QList<std::shared_ptr<Configs::Profile>> only_in;
-                QList<std::shared_ptr<Configs::Profile>> out;
-                // find and delete not updated profile by ProfileFilter
-                Configs::ProfileFilter::OnlyInSrc_ByPointer(out_all, in, out);
-                Configs::ProfileFilter::OnlyInSrc(in, out, only_in, false);
-                Configs::ProfileFilter::OnlyInSrc(out, in, only_out, false);
-                Configs::ProfileFilter::Common(in, out, update_keep, update_del, false);
-                QString notice_added;
-                QString notice_deleted;
-                if (only_out.size() < 1000)
-                {
-                    for (const auto &ent: only_out) {
-                        notice_added += "[+] " + ent->outbound->DisplayTypeAndName() + "\n";
-                    }
-                } else
-                {
-                    notice_added += QString("[+] ") + "added " + Int2String(only_out.size()) + "\n";
-                }
-                if (only_in.size() < 1000)
-                {
-                    for (const auto &ent: only_in) {
-                        notice_deleted += "[-] " + ent->outbound->DisplayTypeAndName() + "\n";
-                    }
-                } else
-                {
-                    notice_deleted += QString("[-] ") + "deleted " + Int2String(only_in.size()) + "\n";
-                }
-
-
-                // sort according to order in remote
-                group->profiles.clear();
-                for (const auto &ent: rawUpdater->updated_order) {
-                    auto deleted_index = update_del.indexOf(ent);
-                    if (deleted_index >= 0) {
-                        if (deleted_index >= update_keep.count()) continue; // should not happen
-                        const auto& ent2 = update_keep[deleted_index];
-                        group->profiles.append(ent2->id);
-                    } else {
-                        group->profiles.append(ent->id);
-                    }
-                }
-                Configs::dataManager->groupsRepo->Save(group);
-
-                // cleanup
-                QList<int> del_ids;
-                for (const auto &ent: out_all) {
-                    if (!group->HasProfile(ent->id)) {
-                        del_ids.append(ent->id);
-                    }
-                }
-                if (!Configs::dataManager->profilesRepo->BatchDeleteProfiles(del_ids, Configs::dataManager->settingsRepo->allow_stopping_active_profile)) {
-                    runOnUiThread([=] {
-                       MessageBoxWarning("Internal error", "DB Error when deleting profiles, data may be corrupted");
-                    });
-                }
-
-                change_text = "\n" + QObject::tr("Added %1 profiles:\n%2\nDeleted %3 Profiles:\n%4")
-                                         .arg(only_out.length())
-                                         .arg(notice_added)
-                                         .arg(only_in.length())
-                                         .arg(notice_deleted);
-                if (only_out.length() + only_in.length() == 0) change_text = QObject::tr("Nothing");
+            } else
+            {
+                notice_added += QString("[+] ") + "added " + Int2String(only_out.size()) + "\n";
             }
+            if (only_in.size() < 1000)
+            {
+                for (const auto &ent: only_in) {
+                    notice_deleted += "[-] " + ent->outbound->DisplayTypeAndName() + "\n";
+                }
+            } else
+            {
+                notice_deleted += QString("[-] ") + "deleted " + Int2String(only_in.size()) + "\n";
+            }
+
+            for (const auto &ent: only_out) {
+                newProfileIDs.append(ent->id);
+            }
+
+            // sort according to order in remote
+            group->profiles.clear();
+            for (const auto &ent: rawUpdater->updated_order) {
+                auto deleted_index = update_del.indexOf(ent);
+                if (deleted_index >= 0) {
+                    if (deleted_index >= update_keep.count()) continue; // should not happen
+                    const auto& ent2 = update_keep[deleted_index];
+                    group->profiles.append(ent2->id);
+                } else {
+                    group->profiles.append(ent->id);
+                }
+            }
+            Configs::dataManager->groupsRepo->Save(group);
+
+            // cleanup
+            QList<int> del_ids;
+            for (const auto &ent: out_all) {
+                if (!group->HasProfile(ent->id)) {
+                    del_ids.append(ent->id);
+                }
+            }
+            if (!Configs::dataManager->profilesRepo->BatchDeleteProfiles(del_ids, Configs::dataManager->settingsRepo->allow_stopping_active_profile)) {
+                runOnUiThread([=] {
+                   MessageBoxWarning("Internal error", "DB Error when deleting profiles, data may be corrupted");
+                });
+            }
+
+            if (group->sort_method != GroupSortMethod::Raw) {
+                GroupSortAction savedSort;
+                savedSort.method = group->sort_method;
+                savedSort.descending = group->sort_descending;
+                group->SortProfiles(savedSort, true);
+                Configs::dataManager->groupsRepo->Save(group);
+            }
+
+            change_text = "\n" + QObject::tr("Added %1 profiles:\n%2\nDeleted %3 Profiles:\n%4")
+                                     .arg(only_out.length())
+                                     .arg(notice_added)
+                                     .arg(only_in.length())
+                                     .arg(notice_deleted);
+            if (only_out.length() + only_in.length() == 0) change_text = QObject::tr("Nothing");
 
             MW_show_log("<<<<<<<< " + QObject::tr("Change of %1:").arg(group->name) + "\n" + change_text);
             MW_dialog_message(MwMessage::SubscriptionFinished, {MwArg::Quiet});
+            if (!newProfileIDs.isEmpty() && MW_speedtest_profiles) {
+                MW_show_log(QObject::tr("Starting speedtest for %1 new profile(s)...").arg(newProfileIDs.size()));
+                MW_speedtest_profiles(newProfileIDs);
+            }
         } else {
             Configs::dataManager->settingsRepo->imported_count = rawUpdater->updated_order.count();
             MW_dialog_message(MwMessage::SubscriptionFinished, {});

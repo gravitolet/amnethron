@@ -35,10 +35,23 @@ namespace Configs {
                 test_sort_by INTEGER NOT NULL DEFAULT 0,
                 traffic_sort_by INTEGER NOT NULL DEFAULT 0,
                 test_items_to_show INTEGER NOT NULL DEFAULT 0,
+                sort_method INTEGER NOT NULL DEFAULT 0,
+                sort_descending INTEGER NOT NULL DEFAULT 0,
+                auto_switch_profiles_json TEXT NOT NULL DEFAULT '[]',
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             )
         )");
+
+        if (!groupsColumnExists("sort_method"))
+            db.exec("ALTER TABLE groups ADD COLUMN sort_method INTEGER NOT NULL DEFAULT 0");
+        if (!groupsColumnExists("sort_descending"))
+            db.exec("ALTER TABLE groups ADD COLUMN sort_descending INTEGER NOT NULL DEFAULT 0");
+        if (!groupsColumnExists("auto_switch_profiles_json")) {
+            db.exec("ALTER TABLE groups ADD COLUMN auto_switch_profiles_json TEXT");
+            // Preserve the pre-feature behaviour: all existing profiles are eligible.
+            db.exec("UPDATE groups SET auto_switch_profiles_json = profiles_json WHERE auto_switch_profiles_json IS NULL");
+        }
 
         // Create groups_order table to store UI tab order
         db.exec(R"(
@@ -47,6 +60,15 @@ namespace Configs {
                 display_order INTEGER NOT NULL
             )
         )");
+    }
+
+    bool GroupsRepo::groupsColumnExists(const char* columnName) const {
+        auto pragma = db.query("PRAGMA table_info(groups)");
+        if (!pragma) return false;
+        while (pragma->executeStep()) {
+            if (pragma->getColumn(1).getText() == std::string(columnName)) return true;
+        }
+        return false;
     }
 
     QJsonObject GroupsRepo::groupToJson(const Group* group) const {
@@ -68,6 +90,13 @@ namespace Configs {
         json["test_sort_by"] = static_cast<int>(group->test_sort_by);
         json["traffic_sort_by"] = static_cast<int>(group->traffic_sort_by);
         json["test_items_to_show"] = static_cast<int>(group->test_items_to_show);
+        json["sort_method"] = static_cast<int>(group->sort_method);
+        json["sort_descending"] = group->sort_descending;
+        QJsonArray autoSwitchProfiles;
+        for (int profileID : group->profiles) {
+            if (group->auto_switch_profiles.contains(profileID)) autoSwitchProfiles.append(profileID);
+        }
+        json["auto_switch_profiles"] = autoSwitchProfiles;
         
         return json;
     }
@@ -91,6 +120,15 @@ namespace Configs {
         group->test_sort_by = static_cast<testBy>(json["test_sort_by"].toInt(0));
         group->traffic_sort_by = static_cast<trafficBy>(json["traffic_sort_by"].toInt(0));
         group->test_items_to_show = static_cast<testShowItems>(json["test_items_to_show"].toInt(0));
+        group->sort_method = static_cast<GroupSortMethod::GroupSortMethod>(json["sort_method"].toInt(0));
+        group->sort_descending = json["sort_descending"].toBool(false);
+        if (json.contains("auto_switch_profiles") && json["auto_switch_profiles"].isArray()) {
+            for (const auto profileID : json["auto_switch_profiles"].toArray()) {
+                if (group->profiles.contains(profileID.toInt())) group->auto_switch_profiles.insert(profileID.toInt());
+            }
+        } else {
+            for (int profileID : group->profiles) group->auto_switch_profiles.insert(profileID);
+        }
         
         return group;
     }
@@ -99,12 +137,18 @@ namespace Configs {
         // Serialize lists to JSON strings
         QJsonArray columnWidthArray = QListInt2QJsonArray(group->column_width);
         QJsonArray profilesArray = QListInt2QJsonArray(group->profiles);
+        QJsonArray autoSwitchProfilesArray;
+        for (int profileID : group->profiles) {
+            if (group->auto_switch_profiles.contains(profileID)) autoSwitchProfilesArray.append(profileID);
+        }
         
         QJsonDocument columnWidthDoc(columnWidthArray);
         QJsonDocument profilesDoc(profilesArray);
+        QJsonDocument autoSwitchProfilesDoc(autoSwitchProfilesArray);
         
         QString columnWidthJson = QString::fromUtf8(columnWidthDoc.toJson(QJsonDocument::Compact));
         QString profilesJson = QString::fromUtf8(profilesDoc.toJson(QJsonDocument::Compact));
+        QString autoSwitchProfilesJson = QString::fromUtf8(autoSwitchProfilesDoc.toJson(QJsonDocument::Compact));
         
         // Check if group exists
         auto checkQuery = db.query("SELECT id FROM groups WHERE id = ?", id);
@@ -117,6 +161,7 @@ namespace Configs {
                 SET archive = ?, skip_auto_update = ?, auto_clear_unavailable = ?, name = ?, url = ?, info = ?,
                     sub_last_update = ?, front_proxy_id = ?, landing_proxy_id = ?,
                     column_width_json = ?, profiles_json = ?, scroll_last_profile = ?, test_sort_by = ?, traffic_sort_by = ?, test_items_to_show = ?,
+                    sort_method = ?, sort_descending = ?, auto_switch_profiles_json = ?,
                     updated_at = strftime('%s', 'now')
                 WHERE id = ?
             )",
@@ -135,6 +180,9 @@ namespace Configs {
                 static_cast<int>(group->test_sort_by),
                 static_cast<int>(group->traffic_sort_by),
                 static_cast<int>(group->test_items_to_show),
+                static_cast<int>(group->sort_method),
+                group->sort_descending ? 1 : 0,
+                autoSwitchProfilesJson.toStdString(),
                 id
             );
         } else {
@@ -143,8 +191,9 @@ namespace Configs {
                 INSERT INTO groups 
                 (id, archive, skip_auto_update, auto_clear_unavailable, name, url, info, sub_last_update,
                  front_proxy_id, landing_proxy_id,
-                 column_width_json, profiles_json, scroll_last_profile, test_sort_by, traffic_sort_by, test_items_to_show)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 column_width_json, profiles_json, scroll_last_profile, test_sort_by, traffic_sort_by, test_items_to_show,
+                 sort_method, sort_descending, auto_switch_profiles_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             )",
                 id,
                 group->archive ? 1 : 0,
@@ -161,7 +210,10 @@ namespace Configs {
                 group->scroll_last_profile,
                 static_cast<int>(group->test_sort_by),
                 static_cast<int>(group->traffic_sort_by),
-                static_cast<int>(group->test_items_to_show)
+                static_cast<int>(group->test_items_to_show),
+                static_cast<int>(group->sort_method),
+                group->sort_descending ? 1 : 0,
+                autoSwitchProfilesJson.toStdString()
             );
         }
     }
@@ -170,7 +222,8 @@ namespace Configs {
         auto query = db.query(R"(
             SELECT id, archive, skip_auto_update, auto_clear_unavailable, name, url, info, sub_last_update,
                    front_proxy_id, landing_proxy_id,
-                   column_width_json, profiles_json, scroll_last_profile, test_sort_by, traffic_sort_by, test_items_to_show
+                   column_width_json, profiles_json, scroll_last_profile, test_sort_by, traffic_sort_by, test_items_to_show,
+                   sort_method, sort_descending, auto_switch_profiles_json
             FROM groups WHERE id = ?
         )", id);
         if (!query || !query->executeStep()) {
@@ -210,6 +263,15 @@ namespace Configs {
         json["test_sort_by"] = query->getColumn(13).getInt();
         json["traffic_sort_by"] = query->getColumn(14).getInt();
         json["test_items_to_show"] = query->getColumn(15).getInt();
+        json["sort_method"] = query->getColumn(16).getInt();
+        json["sort_descending"] = query->getColumn(17).getInt() != 0;
+        QString autoSwitchProfilesJsonStr = QString::fromStdString(query->getColumn(18).getText());
+        if (!autoSwitchProfilesJsonStr.isEmpty()) {
+            QJsonDocument autoSwitchProfilesDoc = QJsonDocument::fromJson(autoSwitchProfilesJsonStr.toUtf8());
+            if (!autoSwitchProfilesDoc.isNull() && autoSwitchProfilesDoc.isArray()) {
+                json["auto_switch_profiles"] = autoSwitchProfilesDoc.array();
+            }
+        }
         
         return groupFromJson(json);
     }

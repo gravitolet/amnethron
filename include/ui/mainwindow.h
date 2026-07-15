@@ -198,7 +198,6 @@ private:
     QString traffic_update_cache;
     qint64 last_test_time = 0;
     //
-    int proxy_last_order = -1;
     bool select_mode = false;
     QMutex mu_starting;
     QMutex mu_stopping;
@@ -277,6 +276,14 @@ private:
 
     void refresh_proxy_list_impl_refresh_data(const QList<int>& ids = {}, bool mayNeedReset = false);
 
+    bool sortGroupUsingSavedPreference(const std::shared_ptr<Configs::Group>& group, bool waitForLock = false);
+
+    void refreshProfileAfterTest(int profileId);
+
+    void updateProfileSortIndicator(const std::shared_ptr<Configs::Group>& group);
+
+    void updateAutoSwitchSelectionUi();
+
     void parseQrImage(const QPixmap *image);
 
     void keyPressEvent(QKeyEvent *event) override;
@@ -331,17 +338,17 @@ private:
 
     std::shared_ptr<Configs::Profile> selectAutoSwitchCandidate(const std::shared_ptr<Configs::Group>& group, const QSet<int>& triedIds) const;
 
-    // Combined download+upload speed (bits/sec) from the last speed test; 0 if untested/unavailable.
-    qint64 profileCombinedSpeed(const std::shared_ptr<Configs::Profile>& ent) const;
+    // Product of download and upload speeds from the last test; 0 if either side is unavailable.
+    long double profileSpeedProduct(const std::shared_ptr<Configs::Profile>& ent) const;
 
-    // Fastest server in the group by combined download+upload speed; nullptr if none testable.
+    // Best eligible server in the group by download*upload; nullptr if none is testable.
     std::shared_ptr<Configs::Profile> selectFastestBySpeed(const std::shared_ptr<Configs::Group>& group) const;
 
     // Periodic timer target: speed-test the running (or current) group, then evaluate a switch.
     void autoSpeedTestAndSwitch();
 
-    // If auto-switch is enabled, switch the running profile to a group peer whose combined
-    // speed beats it by at least auto_switch_speed_threshold percent.
+    // If auto-switch is enabled, switch to an eligible peer whose download*upload product
+    // beats the running server by at least auto_switch_speed_threshold percent.
     void autoSwitchBySpeed();
 
     // onFinished (when set) runs on the worker thread after the batch completes; its presence
@@ -356,9 +363,9 @@ private:
 
     void setupConnectionList();
 
-    void querySpeedtest(const QMap<QString, int>& tag2entID, bool testCurrent);
+    void querySpeedtest(const QMap<QString, int>& tag2entID, bool testCurrent, int entID = -1);
 
-    void queryCountryTest(const QMap<QString, int>& tag2entID, bool testCurrent);
+    void queryCountryTest(const QMap<QString, int>& tag2entID, bool testCurrent, int entID = -1);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;

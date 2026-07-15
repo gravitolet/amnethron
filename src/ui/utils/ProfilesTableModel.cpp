@@ -19,12 +19,13 @@ int ProfilesTableModel::rowCount(const QModelIndex &parent) const {
 
 int ProfilesTableModel::columnCount(const QModelIndex &parent) const {
     if (parent.isValid()) return 0;
-    return 5;
+    return 6;
 }
 
 Qt::ItemFlags ProfilesTableModel::flags(const QModelIndex &index) const {
     Qt::ItemFlags defaultFlags = QAbstractTableModel::flags(index);
     if (index.isValid()) {
+        if (index.column() == 5) return Qt::ItemIsUserCheckable | Qt::ItemIsDragEnabled | defaultFlags;
         return Qt::ItemIsDragEnabled | defaultFlags;
     }
     return Qt::ItemIsDropEnabled | defaultFlags;
@@ -98,6 +99,11 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
     const bool isRunning = (profile->id == startedId);
     QColor linkColor = isRunning ? QApplication::palette().link().color() : QColor();
 
+    if (role == Qt::CheckStateRole && index.column() == 5) {
+        auto group = Configs::dataManager->groupsRepo->GetGroup(profile->gid);
+        return group && group->IsAutoSwitchProfile(profile->id) ? Qt::Checked : Qt::Unchecked;
+    }
+
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
         case 0: return profile->outbound ? profile->outbound->DisplayType() : QString();
@@ -105,6 +111,7 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
         case 2: return profile->outbound ? profile->outbound->name : QString();
         case 3: return profile->DisplayTestResult();
         case 4: return profile->DisplayTraffic();
+        case 5: return {};
         default: return {};
         }
     }
@@ -119,6 +126,21 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
     return {};
 }
 
+bool ProfilesTableModel::setData(const QModelIndex &index, const QVariant &value, int role) {
+    if (!index.isValid() || index.column() != 5 || role != Qt::CheckStateRole) return false;
+    const int profileId = profileIdAt(index.row());
+    auto profile = Configs::dataManager->profilesRepo->GetProfile(profileId);
+    if (!profile) return false;
+    auto group = Configs::dataManager->groupsRepo->GetGroup(profile->gid);
+    if (!group) return false;
+
+    group->SetAutoSwitchProfile(profileId, value.toInt() == Qt::Checked);
+    Configs::dataManager->groupsRepo->Save(group);
+    emit dataChanged(index, index, {Qt::CheckStateRole});
+    emit autoSwitchSelectionChanged(group->id);
+    return true;
+}
+
 QVariant ProfilesTableModel::headerData(int section, Qt::Orientation orientation, int role) const {
     if (role != Qt::DisplayRole) return {};
     if (orientation == Qt::Horizontal) {
@@ -128,6 +150,7 @@ QVariant ProfilesTableModel::headerData(int section, Qt::Orientation orientation
         case 2: return tr("Name");
         case 3: return tr("Test Result");
         case 4: return tr("Traffic");
+        case 5: return tr("Auto");
         default: return {};
         }
     }

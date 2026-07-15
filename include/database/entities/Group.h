@@ -1,6 +1,7 @@
 #pragma once
 #include <QList>
 #include <QMutex>
+#include <QSet>
 #include <QString>
 
 #include "include/ui/group/GroupSort.hpp"
@@ -33,7 +34,7 @@ namespace Configs
 
     class Group {
     public:
-        QMutex mutex;
+        mutable QMutex mutex;
         int id = -1;
         bool archive = false;
         bool skip_auto_update = false;
@@ -53,6 +54,9 @@ namespace Configs
         testBy test_sort_by = testBy::latency;
         trafficBy traffic_sort_by = trafficBy::total;
         testShowItems test_items_to_show = testShowItems::all;
+        GroupSortMethod::GroupSortMethod sort_method = GroupSortMethod::Raw;
+        bool sort_descending = false;
+        QSet<int> auto_switch_profiles;
         QList<std::pair<int, int>> selectedProfilesIdIdxPairs; // memory only, no need to save to db, pairs of (profileID, index)
 
         Group() = default;
@@ -61,7 +65,15 @@ namespace Configs
 
         [[nodiscard]] QList<int> Profiles() const;
 
-        bool SortProfiles(GroupSortAction method);
+        bool SortProfiles(GroupSortAction method, bool waitForLock = false);
+
+        [[nodiscard]] bool IsAutoSwitchProfile(int ID) const;
+
+        void SetAutoSwitchProfile(int ID, bool selected);
+
+        void SetAllAutoSwitchProfiles(bool selected);
+
+        [[nodiscard]] int AutoSwitchProfileCount() const;
 
         bool RemoveProfile(int ID);
 

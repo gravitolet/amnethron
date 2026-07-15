@@ -71,8 +71,8 @@ namespace Configs {
         // Periodic auto speed test of the running/current group. Minutes; sign encodes the
         // enable state like sub_auto_update (negative = disabled). Invalid if abs < 5.
         int auto_speedtest_update = -60;
-        // Minimum percentage by which a candidate's combined (download+upload) speed must
-        // exceed the running server's before auto-switch picks it.
+        // Minimum percentage by which a candidate's download*upload product must exceed
+        // the running server's product before auto-switch picks it.
         int auto_switch_speed_threshold = 20;
         bool disable_tray = false;
         int test_concurrent = 10;

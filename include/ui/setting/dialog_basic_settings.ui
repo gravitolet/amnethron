@@ -258,7 +258,7 @@ QTabBar::tab:hover:!selected {
           <item row="2" column="0" colspan="4">
            <widget class="QCheckBox" name="auto_switch_enabled">
             <property name="toolTip">
-             <string>After a profile starts, test the current connection and switch to the next best server in the same group if it is unavailable. When a periodic group speed test is enabled, also switch to a faster server in the same group.</string>
+             <string>After a profile starts, test the current connection and switch only to checked servers in the same group if it is unavailable. When a periodic group speed test is enabled, also switch to the checked server with the best download*upload product.</string>
             </property>
             <property name="text">
              <string>Enable auto-switch to next server</string>
@@ -268,7 +268,7 @@ QTabBar::tab:hover:!selected {
           <item row="2" column="4">
            <widget class="QLabel" name="auto_switch_speed_threshold_l">
             <property name="toolTip">
-             <string>A server in the same group is picked only if its combined download+upload speed exceeds the current server by at least this percentage.</string>
+             <string>A selected server in the same group is picked only if its download*upload speed product exceeds the current server by at least this percentage.</string>
             </property>
             <property name="text">
              <string>Auto-switch speed threshold (%)</string>

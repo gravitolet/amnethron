@@ -1,5 +1,7 @@
 #include <include/database/entities/Group.h>
 
+#include <algorithm>
+
 #include "include/database/ProfilesRepo.h"
 #include "include/global/Configs.hpp"
 
@@ -31,10 +33,14 @@ namespace Configs
         return 0.0;
     }
 
-    bool Group::SortProfiles(GroupSortAction sortAction) {
-        if (!mutex.tryLock()) {
+    bool Group::SortProfiles(GroupSortAction sortAction, bool waitForLock) {
+        if (waitForLock) {
+            mutex.lock();
+        } else if (!mutex.tryLock()) {
             return false;
         }
+        sort_method = sortAction.method;
+        sort_descending = sortAction.descending;
         auto allProfs = dataManager->profilesRepo->GetProfileBatch(profiles); // to warm up the cache
         switch (sortAction.method) {
             case GroupSortMethod::Raw: {
@@ -54,10 +60,11 @@ namespace Configs
                     if (i < 0) i = 99999;
                     return i;
                 };
-                std::ranges::sort(profiles,
-                                  [&](int a, int b) {
+                std::stable_sort(profiles.begin(), profiles.end(),
+                                 [&](int a, int b) {
                                       auto profA = dataManager->profilesRepo->GetProfile(a);
                                       auto profB = dataManager->profilesRepo->GetProfile(b);
+                                      if (profA == nullptr || profB == nullptr) return profA != nullptr;
                                       QString ms_a;
                                       QString ms_b;
                                       if (sortAction.method == GroupSortMethod::ByType) {
@@ -96,7 +103,7 @@ namespace Configs
                                           }
                                       }
                                       return sortAction.descending ? ms_a > ms_b : ms_a < ms_b;
-                                  });
+                                 });
                 break;
             }
         }
@@ -112,6 +119,7 @@ namespace Configs
             return false;
         }
         profiles.append(ID);
+        auto_switch_profiles.insert(ID);
         return true;
     }
 
@@ -124,6 +132,7 @@ namespace Configs
         for (auto profileID : IDs) {
             if (!currentProfiles.contains(profileID)) {
                 profiles.append(profileID);
+                auto_switch_profiles.insert(profileID);
             }
         }
         return true;
@@ -134,6 +143,7 @@ namespace Configs
         QMutexLocker locker(&mutex);
         if (!HasProfile(ID)) return false;
         profiles.removeAll(ID);
+        auto_switch_profiles.remove(ID);
         return true;
     }
 
@@ -150,6 +160,10 @@ namespace Configs
             }
         }
         profiles = newIDs;
+        for (auto it = auto_switch_profiles.begin(); it != auto_switch_profiles.end();) {
+            if (!profiles.contains(*it)) it = auto_switch_profiles.erase(it);
+            else ++it;
+        }
         return true;
     }
 
@@ -174,5 +188,37 @@ namespace Configs
     bool Group::HasProfile(int ID) const
     {
         return profiles.contains(ID);
+    }
+
+    bool Group::IsAutoSwitchProfile(int ID) const
+    {
+        QMutexLocker locker(&mutex);
+        return auto_switch_profiles.contains(ID);
+    }
+
+    void Group::SetAutoSwitchProfile(int ID, bool selected)
+    {
+        QMutexLocker locker(&mutex);
+        if (!profiles.contains(ID)) return;
+        if (selected) auto_switch_profiles.insert(ID);
+        else auto_switch_profiles.remove(ID);
+    }
+
+    void Group::SetAllAutoSwitchProfiles(bool selected)
+    {
+        QMutexLocker locker(&mutex);
+        auto_switch_profiles.clear();
+        if (!selected) return;
+        for (int ID : profiles) auto_switch_profiles.insert(ID);
+    }
+
+    int Group::AutoSwitchProfileCount() const
+    {
+        QMutexLocker locker(&mutex);
+        int count = 0;
+        for (int ID : profiles) {
+            if (auto_switch_profiles.contains(ID)) ++count;
+        }
+        return count;
     }
 }
