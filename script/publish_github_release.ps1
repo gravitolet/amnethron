@@ -52,8 +52,11 @@ function Invoke-GitHubApi {
         $params.InFile = $InFile
         $params.ContentType = $ContentType
     } elseif ($null -ne $Body) {
-        $params.Body = ($Body | ConvertTo-Json -Depth 10 -Compress)
-        $params.ContentType = $ContentType
+        $json = $Body | ConvertTo-Json -Depth 10 -Compress
+        # Windows PowerShell 5.1 may otherwise encode a string body using the
+        # system code page, which makes JSON with Russian release notes invalid.
+        $params.Body = [Text.Encoding]::UTF8.GetBytes($json)
+        $params.ContentType = 'application/json; charset=utf-8'
     }
     Invoke-RestMethod @params
 }
@@ -115,6 +118,13 @@ $body = "$releaseNotes`n`n**SHA-256 (``$expectedName``):** ``$sha256``"
 $tag = "v$Version"
 
 if ($ValidateOnly) {
+    # Exercise the authenticated UTF-8 JSON POST path without creating or
+    # changing a release, so encoding failures are caught during validation.
+    $null = Invoke-GitHubApi -Method Post -Uri 'https://api.github.com/markdown' -Body @{
+        text = $releaseNotes
+        mode = 'gfm'
+        context = $Repository
+    }
     Write-Output "Validated GitHub release $tag for $Repository at $TargetCommitish"
     Write-Output "Installer: $InstallerPath"
     Write-Output "SHA-256: $sha256"
