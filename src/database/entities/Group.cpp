@@ -54,11 +54,12 @@ namespace Configs
             case GroupSortMethod::ByTestResult:
             case GroupSortMethod::ByTraffic:
             case GroupSortMethod::ByType: {
-                auto get_latency_for_sort = [](const std::shared_ptr<Profile>& prof) {
-                    auto i = prof->latency;
-                    if (i == 0) i = 100000;
-                    if (i < 0) i = 99999;
-                    return i;
+                auto get_speed_product_for_sort = [](const std::shared_ptr<Profile>& prof) {
+                    const long double dl = std::max(
+                        0.0L, static_cast<long double>(bitrateToBps(prof->dl_speed)));
+                    const long double ul = std::max(
+                        0.0L, static_cast<long double>(bitrateToBps(prof->ul_speed)));
+                    return dl * ul;
                 };
                 std::stable_sort(profiles.begin(), profiles.end(),
                                  [&](int a, int b) {
@@ -77,8 +78,10 @@ namespace Configs
                                           ms_a = profA->outbound->DisplayAddress();
                                           ms_b = profB->outbound->DisplayAddress();
                                       } else if (sortAction.method == GroupSortMethod::ByTestResult) {
-                                          if (test_sort_by == testBy::latency) {
-                                              return sortAction.descending ? get_latency_for_sort(profA) > get_latency_for_sort(profB) : get_latency_for_sort(profA) < get_latency_for_sort(profB);
+                                          if (test_sort_by == testBy::speedProduct) {
+                                              const long double productA = get_speed_product_for_sort(profA);
+                                              const long double productB = get_speed_product_for_sort(profB);
+                                              return sortAction.descending ? productA > productB : productA < productB;
                                           }
                                           if (test_sort_by == testBy::dlSpeed) {
                                               return sortAction.descending ? bitrateToBps(profA->dl_speed) > bitrateToBps(profB->dl_speed) : bitrateToBps(profA->dl_speed) < bitrateToBps(profB->dl_speed);

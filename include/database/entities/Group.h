@@ -9,7 +9,7 @@
 namespace Configs
 {
     enum class testBy : int {
-        latency = 0,
+        speedProduct = 0,
         dlSpeed,
         ulSpeed,
         ipOut
@@ -51,7 +51,7 @@ namespace Configs
         QList<int> calculated_column_width; // memory only, no need to save to db
         QList<int> profiles;
         int scroll_last_profile = -1;
-        testBy test_sort_by = testBy::latency;
+        testBy test_sort_by = testBy::speedProduct;
         trafficBy traffic_sort_by = trafficBy::total;
         testShowItems test_items_to_show = testShowItems::all;
         GroupSortMethod::GroupSortMethod sort_method = GroupSortMethod::Raw;

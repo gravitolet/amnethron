@@ -2591,8 +2591,8 @@ https://matsuridayo.github.io/n-configuration/#vpn-tun</translation>
         <translation>排序依据:</translation>
     </message>
     <message>
-        <source>Latency</source>
-        <translation>延迟</translation>
+        <source>Download x Upload</source>
+        <translation>下载与上传速度乘积</translation>
     </message>
     <message>
         <source>Download Speed</source>

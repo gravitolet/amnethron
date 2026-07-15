@@ -2353,7 +2353,7 @@ https://matsuridayo.github.io/n-configuration/#vpn-tun</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Latency</source>
+        <source>Download x Upload</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

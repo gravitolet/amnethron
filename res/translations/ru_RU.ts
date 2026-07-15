@@ -2658,8 +2658,8 @@ https://matsuridayo.github.io/n-configuration/#vpn-tun</translation>
         <translation>Сортировать по:</translation>
     </message>
     <message>
-        <source>Latency</source>
-        <translation>Пингу (задержке)</translation>
+        <source>Download x Upload</source>
+        <translation>Произведению скоростей (↓ × ↑)</translation>
     </message>
     <message>
         <source>Download Speed</source>

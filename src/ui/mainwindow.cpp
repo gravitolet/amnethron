@@ -547,9 +547,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         }
         auto selectedGroup = Configs::dataManager->groupsRepo->CurrentGroup();
         if (selectedGroup == nullptr) return;
+        const bool defaultDescending = action.method == GroupSortMethod::ByTestResult ||
+                                       action.method == GroupSortMethod::ByTraffic;
         action.descending = selectedGroup->sort_method == action.method
             ? !selectedGroup->sort_descending
-            : false;
+            : defaultDescending;
         runOnNewThread([=, this] {
             auto currGroup = Configs::dataManager->groupsRepo->GetGroup(selectedGroup->id);
             if (currGroup == nullptr) return;
@@ -570,7 +572,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     });
     connect(ui->profilesTableView->horizontalHeader(), &QHeaderView::sectionResized, this, [=, this](int, int, int) {
         auto group = Configs::dataManager->groupsRepo->CurrentGroup();
-        if (Configs::dataManager->settingsRepo->refreshing_group || group == nullptr) return;
+        if (m_applyingProfileColumnWidths ||
+            Configs::dataManager->settingsRepo->refreshing_group || group == nullptr) return;
         group->column_width.clear();
         for (int i = 0; i < ui->profilesTableView->horizontalHeader()->count(); i++) {
             group->column_width.push_back(ui->profilesTableView->horizontalHeader()->sectionSize(i));
@@ -621,7 +624,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
             struct SortOption { int value; QString label; };
             QList<SortOption> options = {
-                { static_cast<int>(Configs::testBy::latency), tr("Latency") },
+                { static_cast<int>(Configs::testBy::speedProduct), tr("Download x Upload") },
                 { static_cast<int>(Configs::testBy::dlSpeed), tr("Download Speed") },
                 { static_cast<int>(Configs::testBy::ulSpeed), tr("Upload Speed") },
                 { static_cast<int>(Configs::testBy::ipOut), tr("IP Out") }
@@ -640,7 +643,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             group->test_sort_by = static_cast<Configs::testBy>(testSortBy);
             GroupSortAction action;
             action.method = GroupSortMethod::ByTestResult;
-            action.descending = group->test_sort_by == Configs::testBy::dlSpeed ||
+            action.descending = group->test_sort_by == Configs::testBy::speedProduct ||
+                                group->test_sort_by == Configs::testBy::dlSpeed ||
                                 group->test_sort_by == Configs::testBy::ulSpeed;
             runOnNewThread([=, this] {
                 auto currGroup = Configs::dataManager->groupsRepo->GetGroup(group->id);
@@ -2234,12 +2238,22 @@ void MainWindow::refresh_groups() {
 }
 
 void MainWindow::refresh_proxy_list_column_size() {
-    auto group = Configs::dataManager->groupsRepo->CurrentGroup();
-    if (!group) return;
+    auto currentGroup = Configs::dataManager->groupsRepo->CurrentGroup();
+    if (!currentGroup) return;
 
+    const int groupId = currentGroup->id;
     auto *hHeader = dynamic_cast<ProfilesTableFilterHeader*>(ui->profilesTableView->horizontalHeader());
+    if (!hHeader) return;
     QTimer::singleShot(0, ui->profilesTableView, [=, this]() {
-        hHeader->blockSignals(true);
+        auto group = Configs::dataManager->groupsRepo->CurrentGroup();
+        if (!group || group->id != groupId) return;
+
+        // Keep QHeaderView signals enabled: QTableView relies on sectionResized to
+        // invalidate every row. Blocking them leaves already-painted rows at the old
+        // geometry until another update happens, which makes columns look staggered
+        // after scrolling. The guard only suppresses persistence of these internal
+        // resize steps while preserving the view's own layout notifications.
+        m_applyingProfileColumnWidths = true;
         const int columnCount = hHeader->count();
         const bool savedWidthsValid = group->column_width.size() == columnCount;
         if (!savedWidthsValid) {
@@ -2281,7 +2295,8 @@ void MainWindow::refresh_proxy_list_column_size() {
             ui->profilesTableView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         }
         hHeader->adjustPositions();
-        hHeader->blockSignals(false);
+        m_applyingProfileColumnWidths = false;
+        ui->profilesTableView->viewport()->update();
     });
 }
 

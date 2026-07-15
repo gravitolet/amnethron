@@ -302,6 +302,7 @@ private:
 
     // Debounced refresh_proxy_list trigger for font/theme/resize events.
     QTimer *m_proxyListRefreshDebounce = nullptr;
+    bool m_applyingProfileColumnWidths = false;
     void scheduleProxyListRefresh();
 
     //
