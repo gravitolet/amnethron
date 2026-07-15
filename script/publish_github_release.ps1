@@ -61,6 +61,21 @@ function Invoke-GitHubApi {
     Invoke-RestMethod @params
 }
 
+function Get-GitHubAssetUploadUri {
+    param(
+        [Parameter(Mandatory = $true)][string]$UploadUrlTemplate,
+        [Parameter(Mandatory = $true)][string]$AssetName
+    )
+
+    $uploadBase = $UploadUrlTemplate -replace '\{\?name,label\}$', ''
+    $encodedName = [Uri]::EscapeDataString($AssetName)
+    $uri = "${uploadBase}?name=$encodedName"
+    if (-not [Uri]::IsWellFormedUriString($uri, [UriKind]::Absolute)) {
+        throw "Invalid GitHub asset upload URI: $uri"
+    }
+    return $uri
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $versionFile = Join-Path $repoRoot 'VERSION.txt'
 $versionInSource = (Get-Content -LiteralPath $versionFile -Raw).Trim()
@@ -125,6 +140,9 @@ if ($ValidateOnly) {
         mode = 'gfm'
         context = $Repository
     }
+    $null = Get-GitHubAssetUploadUri `
+        -UploadUrlTemplate "https://uploads.github.com/repos/$Repository/releases/1/assets{?name,label}" `
+        -AssetName $expectedName
     Write-Output "Validated GitHub release $tag for $Repository at $TargetCommitish"
     Write-Output "Installer: $InstallerPath"
     Write-Output "SHA-256: $sha256"
@@ -164,9 +182,8 @@ foreach ($asset in $release.assets) {
     }
 }
 
-$uploadUrl = $release.upload_url -replace '\{\?name,label\}$', ''
-$encodedName = [Uri]::EscapeDataString($expectedName)
-$null = Invoke-GitHubApi -Method Post -Uri "$uploadUrl?name=$encodedName" -InFile $InstallerPath -ContentType 'application/octet-stream'
+$assetUploadUri = Get-GitHubAssetUploadUri -UploadUrlTemplate $release.upload_url -AssetName $expectedName
+$null = Invoke-GitHubApi -Method Post -Uri $assetUploadUri -InFile $InstallerPath -ContentType 'application/octet-stream'
 
 Write-Output "Published: $($release.html_url)"
 Write-Output "Asset: $expectedName"
