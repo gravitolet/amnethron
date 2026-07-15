@@ -271,7 +271,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         const QList<int> ids = profileIDs;
         runOnUiThread([=,this]
         {
-            speedtest_current_group(ids, false, [] {});
+            speedtest_current_group(ids, false, {}, true);
         });
     };
 
@@ -1084,16 +1084,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     {
         if (running != nullptr)
         {
-            speedtest_current_group({}, true);
+            speedtest_current_group({}, true, [this] { autoSwitchBySpeed(); });
         }
     });
     connect(ui->actionSpeedtest_Selected, &QAction::triggered, this, [=,this]()
     {
-        speedtest_current_group(get_now_selected_list());
+        speedtest_current_group(get_now_selected_list(), false, [this] { autoSwitchBySpeed(); });
     });
     connect(ui->actionSpeedtest_Group, &QAction::triggered, this, [=,this]()
     {
-        speedtest_current_group(Configs::dataManager->groupsRepo->CurrentGroup()->Profiles());
+        speedtest_current_group(Configs::dataManager->groupsRepo->CurrentGroup()->Profiles(), false,
+                                [this] { autoSwitchBySpeed(); });
     });
     connect(ui->actionResolve_Selected_Out_IP, &QAction::triggered, this, [=,this]() {
         iptest_current_group(get_now_selected_list());

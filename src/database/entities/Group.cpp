@@ -15,6 +15,16 @@ namespace Configs
         return profiles;
     }
 
+    QList<int> Group::AutoSwitchProfiles() const {
+        QMutexLocker locker(&mutex);
+        QList<int> result;
+        result.reserve(profiles.size());
+        for (int id : profiles) {
+            if (auto_switch_profiles.contains(id)) result.append(id);
+        }
+        return result;
+    }
+
     double bitrateToBps(const QString& str)
     {
         if (str.endsWith("Gbps", Qt::CaseInsensitive)) {

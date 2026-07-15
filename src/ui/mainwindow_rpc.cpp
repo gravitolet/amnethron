@@ -18,6 +18,7 @@
 #include "include/sys/Process.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <memory>
 
@@ -449,15 +450,15 @@ void MainWindow::iptest_current_group(const QList<int>& profileIDs) {
     });
 }
 
-void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool testCurrent, std::function<void()> onFinished)
+void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool testCurrent,
+                                         std::function<void()> onFinished, bool silentIfBusy)
 {
     if (profileIDs.isEmpty() && !testCurrent) {
         return;
     }
     if (!speedtestRunning.tryLock()) {
-        // Background (periodic) calls carry a callback and must not pop up a warning; just skip
-        // this tick and let the next one run once the current test finishes.
-        if (!onFinished) {
+        // A periodic call must not pop up a warning; it can retry on the next timer tick.
+        if (!silentIfBusy) {
             MessageBoxWarning(software_name, tr("The last test did not finish completely, please wait. If it persists, please restart the program."));
         } else {
             MW_show_log(tr("Speedtest skipped: another test is already running."));
@@ -503,14 +504,15 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
             runSpeedTest("", "", true, true, {}, {}, -1);
             currentUnderTest.store(false);
         }
+        const bool completed = !stopSpeedtest.load();
         dataViewHtmlGenerator_.clearTestSections();
         UpdateDataView(true);
         speedtestRunning.unlock();
         runOnUiThread([=,this]{
             refresh_proxy_list(profileIDs);
             MW_show_log(tr("Speedtest finished!"));
+            if (onFinished && completed) onFinished();
         });
-        if (onFinished) onFinished();
     });
 }
 
@@ -734,76 +736,58 @@ bool MainWindow::healthCheckCurrentProfile(const std::shared_ptr<Configs::Profil
 }
 
 long double MainWindow::profileSpeedProduct(const std::shared_ptr<Configs::Profile>& ent) const {
-    if (ent == nullptr) return 0;
-    const long double dl = std::max(0.0L, static_cast<long double>(Configs::bitrateToBps(ent->dl_speed)));
-    const long double ul = std::max(0.0L, static_cast<long double>(Configs::bitrateToBps(ent->ul_speed)));
+    if (ent == nullptr || ent->latency < 0) return 0;
+    const long double dl = static_cast<long double>(Configs::bitrateToBps(ent->dl_speed));
+    const long double ul = static_cast<long double>(Configs::bitrateToBps(ent->ul_speed));
+    if (!std::isfinite(dl) || !std::isfinite(ul) || dl <= 0 || ul <= 0) return 0;
     return dl * ul;
-}
-
-std::shared_ptr<Configs::Profile> MainWindow::selectFastestBySpeed(const std::shared_ptr<Configs::Group>& group) const {
-    if (group == nullptr) return nullptr;
-
-    std::shared_ptr<Configs::Profile> best = nullptr;
-    long double bestSpeedProduct = -1;
-    for (int id : group->Profiles()) {
-        if (!group->IsAutoSwitchProfile(id)) continue;
-        auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
-        if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
-        if (profile->type == "direct") continue;
-        if (profile->latency < 0) continue; // known unavailable in the last test
-        const long double speedProduct = profileSpeedProduct(profile);
-        if (speedProduct > bestSpeedProduct) {
-            bestSpeedProduct = speedProduct;
-            best = profile;
-        }
-    }
-    return best;
 }
 
 std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const std::shared_ptr<Configs::Group>& group, const QSet<int>& triedIds) const {
     if (group == nullptr) return nullptr;
 
-    const auto groupProfileIds = group->Profiles();
-    QList<std::shared_ptr<Configs::Profile>> candidates;
-    for (int id : groupProfileIds) {
+    const auto groupProfileIds = group->AutoSwitchProfiles();
+    struct RankedProfile {
+        std::shared_ptr<Configs::Profile> profile;
+        long double speedProduct;
+        int groupIndex;
+    };
+
+    QList<RankedProfile> candidates;
+    for (int groupIndex = 0; groupIndex < groupProfileIds.size(); ++groupIndex) {
+        const int id = groupProfileIds[groupIndex];
         if (triedIds.contains(id)) continue;
-        if (!group->IsAutoSwitchProfile(id)) continue;
         auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
         if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
         if (profile->type == "direct") continue;
-        candidates << profile;
+        const long double speedProduct = profileSpeedProduct(profile);
+        if (speedProduct <= 0) continue;
+        candidates.append({profile, speedProduct, groupIndex});
     }
     if (candidates.isEmpty()) return nullptr;
 
-    auto latencyRank = [](const std::shared_ptr<Configs::Profile>& profile) {
-        if (profile->latency > 0) return profile->latency;
-        if (profile->latency < 0) return 1000001;
-        return 1000000;
-    };
-
-    // Prefer the best download*upload product; fall back to latency then group order
-    // so untested servers still get tried in a stable, sensible sequence.
+    // Always retry selected Auto profiles by download*upload. Invalid, unavailable,
+    // unmeasured, zero and negative results are deliberately not fallback candidates.
     std::sort(candidates.begin(), candidates.end(),
-              [&](const std::shared_ptr<Configs::Profile>& a, const std::shared_ptr<Configs::Profile>& b) {
-                  const long double productA = profileSpeedProduct(a);
-                  const long double productB = profileSpeedProduct(b);
-                  if (productA != productB) {
-                      return productA > productB;
+              [](const RankedProfile& a, const RankedProfile& b) {
+                  if (a.speedProduct != b.speedProduct) {
+                      return a.speedProduct > b.speedProduct;
                   }
-                  const int latencyA = latencyRank(a);
-                  const int latencyB = latencyRank(b);
-                  if (latencyA != latencyB) {
-                      return latencyA < latencyB;
+                  if (a.groupIndex != b.groupIndex) {
+                      return a.groupIndex < b.groupIndex;
                   }
-                  const int indexA = groupProfileIds.indexOf(a->id);
-                  const int indexB = groupProfileIds.indexOf(b->id);
-                  if (indexA != indexB) {
-                      return indexA < indexB;
-                  }
-                  return a->id < b->id;
+                  return a.profile->id < b.profile->id;
               });
 
-    return candidates.first();
+    return candidates.first().profile;
+}
+
+void MainWindow::resetAutoSwitchSpeedMeasurement(const std::shared_ptr<Configs::Profile>& ent) {
+    if (ent == nullptr) return;
+    ent->dl_speed = "0.00Kbps";
+    ent->ul_speed = "0.00Kbps";
+    Configs::dataManager->profilesRepo->Save(ent);
+    refreshProfileAfterTest(ent->id);
 }
 
 void MainWindow::autoSpeedTestAndSwitch() {
@@ -816,11 +800,13 @@ void MainWindow::autoSpeedTestAndSwitch() {
     if (group == nullptr) group = Configs::dataManager->groupsRepo->CurrentGroup();
     if (group == nullptr || group->archive) return;
 
-    auto profileIDs = group->Profiles();
+    // Periodic auto tests only need profiles that can actually participate in
+    // auto-switching. Manual group tests still use the full profile list.
+    auto profileIDs = group->AutoSwitchProfiles();
     if (profileIDs.isEmpty()) return;
 
     MW_show_log(tr("Auto speed test started for group: %1").arg(group->name));
-    speedtest_current_group(profileIDs, false, [this] { autoSwitchBySpeed(); });
+    speedtest_current_group(profileIDs, false, [this] { autoSwitchBySpeed(); }, true);
 }
 
 void MainWindow::autoSwitchBySpeed() {
@@ -830,7 +816,8 @@ void MainWindow::autoSwitchBySpeed() {
     auto group = Configs::dataManager->groupsRepo->GetGroup(running->gid);
     if (group == nullptr) return;
 
-    auto best = selectFastestBySpeed(group);
+    // The initial switch and every retry use exactly the same ranking function.
+    auto best = selectAutoSwitchCandidate(group, QSet<int>{});
     if (best == nullptr || best->id == running->id) return;
 
     const long double currentSpeedProduct = profileSpeedProduct(running);
@@ -1036,6 +1023,7 @@ void MainWindow::profile_start(int _id) {
 
                 if (!profile_start_stage2(currentEnt, currentEnt->id == ent->id)) {
                     MW_show_log("<<<<<<<< " + tr("Failed to start profile %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                    resetAutoSwitchSpeedMeasurement(currentEnt);
                     currentEnt = selectAutoSwitchCandidate(group, triedIds);
                     if (currentEnt != nullptr) {
                         MW_show_log(tr("Trying next server in group by speed: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
@@ -1056,6 +1044,7 @@ void MainWindow::profile_start(int _id) {
 
                 MW_show_log("[Warn] " + tr("Profile %1 is unavailable after start: %2")
                     .arg(currentEnt->outbound->DisplayTypeAndName(), healthError));
+                resetAutoSwitchSpeedMeasurement(currentEnt);
                 profile_stop(false, true, false);
 
                 currentEnt = selectAutoSwitchCandidate(group, triedIds);

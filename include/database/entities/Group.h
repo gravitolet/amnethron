@@ -65,6 +65,9 @@ namespace Configs
 
         [[nodiscard]] QList<int> Profiles() const;
 
+        // Auto-switch profile IDs in the same order as the group profile list.
+        [[nodiscard]] QList<int> AutoSwitchProfiles() const;
+
         bool SortProfiles(GroupSortAction method, bool waitForLock = false);
 
         [[nodiscard]] bool IsAutoSwitchProfile(int ID) const;
