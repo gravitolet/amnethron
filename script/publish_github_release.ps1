@@ -183,7 +183,15 @@ foreach ($asset in $release.assets) {
 }
 
 $assetUploadUri = Get-GitHubAssetUploadUri -UploadUrlTemplate $release.upload_url -AssetName $expectedName
-$null = Invoke-GitHubApi -Method Post -Uri $assetUploadUri -InFile $InstallerPath -ContentType 'application/octet-stream'
+$uploadedAsset = Invoke-GitHubApi -Method Post -Uri $assetUploadUri -InFile $InstallerPath -ContentType 'application/octet-stream'
+$installerSize = (Get-Item -LiteralPath $InstallerPath).Length
+$expectedDigest = "sha256:$sha256"
+if ($uploadedAsset.state -ne 'uploaded' -or $uploadedAsset.size -ne $installerSize) {
+    throw "GitHub asset verification failed: state='$($uploadedAsset.state)', size='$($uploadedAsset.size)', expected size='$installerSize'."
+}
+if ($uploadedAsset.digest -and $uploadedAsset.digest -ne $expectedDigest) {
+    throw "GitHub asset digest '$($uploadedAsset.digest)' does not match '$expectedDigest'."
+}
 
 Write-Output "Published: $($release.html_url)"
 Write-Output "Asset: $expectedName"
