@@ -115,7 +115,16 @@ QVariant ProfilesTableModel::data(const QModelIndex &index, int role) const {
         default: return {};
         }
     }
+    if (role == Qt::ToolTipRole) {
+        if (profile->is_broken) {
+            return tr("Server is broken: foreign traffic check failed");
+        }
+        return {};
+    }
     if (role == Qt::ForegroundRole) {
+        if (profile->is_broken) {
+            return QColor(220, 50, 50);
+        }
         if (index.column() == 3) {
             QColor latencyColor = profile->DisplayLatencyColor();
             if (latencyColor.isValid()) return latencyColor;

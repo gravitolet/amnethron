@@ -185,6 +185,15 @@ namespace Subscription {
         return ok ? result : defaultValue;
     }
 
+    bool pickBool(const QList<QJsonObject> &objects, const QStringList &keys, bool defaultValue = false) {
+        auto value = pickJsonValue(objects, keys);
+        if (value.isBool()) return value.toBool(defaultValue);
+        auto str = jsonScalarToString(value).toLower();
+        if (str == "true" || str == "1") return true;
+        if (str == "false" || str == "0") return false;
+        return defaultValue;
+    }
+
     QStringList pickStringList(const QList<QJsonObject> &objects, const QStringList &keys) {
         auto value = pickJsonValue(objects, keys);
         if (value.isArray()) {
@@ -325,6 +334,10 @@ namespace Subscription {
         appendLine("I3", pickString(protocolFirst, {"I3", "i3"}));
         appendLine("I4", pickString(protocolFirst, {"I4", "i4"}));
         appendLine("I5", pickString(protocolFirst, {"I5", "i5"}));
+        appendLine("HeaderProtectionKey", pickString(protocolFirst, {"HeaderProtectionKey", "header_protection_key", "hpk", "Hpk"}));
+        appendLine("ContentPaddingAddition", pickString(protocolFirst, {"ContentPaddingAddition", "content_padding_addition", "cpa", "Cpa"}));
+        appendLine("RandomTrailers", pickString(protocolFirst, {"RandomTrailers", "random_trailers"}));
+        appendLine("DisableCookies", pickString(protocolFirst, {"DisableCookies", "disable_cookies"}));
 
         lines << "" << "[Peer]";
         appendLine("PublicKey", serverPublicKey);
@@ -373,6 +386,12 @@ namespace Subscription {
         setString(wireguard->i3, {"I3", "i3"});
         setString(wireguard->i4, {"I4", "i4"});
         setString(wireguard->i5, {"I5", "i5"});
+        setString(wireguard->header_protection_key, {"HeaderProtectionKey", "header_protection_key", "hpk", "Hpk"});
+        setInt(wireguard->content_padding_addition, {"ContentPaddingAddition", "content_padding_addition", "cpa", "Cpa"});
+        setInt(wireguard->random_trailers, {"RandomTrailers", "random_trailers"});
+        if (pickBool(objects, {"DisableCookies", "disable_cookies"}, false)) {
+            wireguard->disable_cookies = true;
+        }
     }
 
     std::shared_ptr<Configs::Profile> makeProfileFromAmneziaWireGuard(
@@ -414,7 +433,7 @@ namespace Subscription {
             auto containerName = container.value("container").toString().toLower();
             auto protocolConfig = protocolConfigFromAmneziaContainer(container);
             if (protocolConfig.isEmpty()) continue;
-            if (!containerName.contains("awg") && !container.contains("awg")) continue;
+            if (!containerName.contains("awg") && !container.contains("awg") && !containerName.contains("amnezia-wireguard") && !containerName.contains("amnezia-awg")) continue;
 
             auto clientConfig = jsonObjectFromValue(protocolConfig.value("last_config"));
             if (clientConfig.isEmpty()) clientConfig = protocolConfig;

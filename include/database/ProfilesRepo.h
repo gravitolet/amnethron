@@ -47,6 +47,7 @@ namespace Configs {
         
         // Create tables if they don't exist
         void createTables() const;
+        bool profilesColumnExists(const char* columnName) const;
 
         // Get next available profile ID (single)
         int NewProfileID() const;

@@ -19,6 +19,7 @@ namespace Configs
         test_country.clear();
         ip_out.clear();
         latency = 0;
+        is_broken = false;
         dl_speed.clear();
         ul_speed.clear();
     }
@@ -28,6 +29,10 @@ namespace Configs
         if (group == nullptr) return "";
         QString result;
         if (!test_country.isEmpty()) result += UNICODE_LRO + CountryCodeToFlag(test_country) + " ";
+        if (is_broken) {
+            result += "❌ " + QObject::tr("Broken");
+            return result;
+        }
         if (latency < 0) {
             result = "Unavailable";
             return result;
@@ -43,6 +48,9 @@ namespace Configs
     }
 
     QColor Profile::DisplayLatencyColor() const {
+        if (is_broken) {
+            return Qt::red;
+        }
         if (latency < 0) {
             return Qt::darkGray;
         } else if (latency > 0) {

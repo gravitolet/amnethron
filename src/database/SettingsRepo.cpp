@@ -22,6 +22,7 @@ namespace Configs {
             {"mux_default_on",                &mux_default_on},
             {"net_use_proxy",                 &net_use_proxy},
             {"remember_enable",               &remember_enable},
+            {"autorun_initialized",           &autorun_initialized},
             {"skip_cert",                     &skip_cert},
             {"fakedns",                       &fake_dns},
             {"disable_traffic_stats",         &disable_traffic_stats},
@@ -201,6 +202,20 @@ namespace Configs {
                 int v = str.toInt(&ok);
                 xray_vless_preference = static_cast<Xray::XrayVlessPreference>(ok ? v : 0);
             }
+        }
+
+        // Migrate defaults to match user preferences
+        if (direct_dns == "localhost" || direct_dns.isEmpty()) {
+            direct_dns = "77.88.8.8";
+        }
+        if (remote_dns_strategy.isEmpty()) {
+            remote_dns_strategy = "ipv4_only";
+        }
+        if (direct_dns_strategy.isEmpty()) {
+            direct_dns_strategy = "ipv4_only";
+        }
+        if (resolve_domain_strategy.isEmpty()) {
+            resolve_domain_strategy = "prefer_ipv4";
         }
     }
 

@@ -41,6 +41,28 @@ namespace Configs {
         if (dataManager->routesRepo->GetAllRouteProfileIds().empty()) {
             auto defaultRoute = RouteProfile::GetDefaultChain();
             dataManager->routesRepo->AddRouteProfile(defaultRoute);
+
+            auto bypassRussia = RouteProfile::GetBypassRussiaChain();
+            dataManager->routesRepo->AddRouteProfile(bypassRussia);
+
+            dataManager->settingsRepo->current_route_id = bypassRussia->id;
+            dataManager->settingsRepo->active_routing = "Bypass Russia";
+            dataManager->settingsRepo->Save();
+        } else {
+            bool hasBypassRussia = false;
+            for (const auto& r : dataManager->routesRepo->GetAllRouteProfiles()) {
+                if (r->name.compare("Bypass Russia", Qt::CaseInsensitive) == 0) {
+                    hasBypassRussia = true;
+                    break;
+                }
+            }
+            if (!hasBypassRussia) {
+                auto bypassRussia = RouteProfile::GetBypassRussiaChain();
+                dataManager->routesRepo->AddRouteProfile(bypassRussia);
+                dataManager->settingsRepo->current_route_id = bypassRussia->id;
+                dataManager->settingsRepo->active_routing = "Bypass Russia";
+                dataManager->settingsRepo->Save();
+            }
         }
     }
 

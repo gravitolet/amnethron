@@ -96,7 +96,8 @@ void MainWindow::runURLTest(const QString& config, const QString& xrayConfig, bo
                     continue;
                 }
                 if (res.error.value().empty()) {
-                ent->latency = res.latency_ms.value();
+                    ent->latency = res.latency_ms.value();
+                    ent->is_broken = false;
                 } else {
                     if (QString::fromStdString(res.error.value()).contains("test aborted") ||
                         QString::fromStdString(res.error.value()).contains("context canceled")) ent->latency=0;
@@ -143,6 +144,7 @@ void MainWindow::runURLTest(const QString& config, const QString& xrayConfig, bo
 
         if (res.error.value().empty()) {
             ent->latency = res.latency_ms.value();
+            ent->is_broken = false;
         } else {
             if (QString::fromStdString(res.error.value()).contains("test aborted") ||
                 QString::fromStdString(res.error.value()).contains("context canceled")) ent->latency=0;
@@ -760,6 +762,7 @@ std::shared_ptr<Configs::Profile> MainWindow::selectAutoSwitchCandidate(const st
         auto profile = Configs::dataManager->profilesRepo->GetProfile(id);
         if (profile == nullptr || profile->outbound == nullptr || profile->outbound->invalid) continue;
         if (profile->type == "direct") continue;
+        if (profile->is_broken) continue;
         const long double speedProduct = profileSpeedProduct(profile);
         if (speedProduct <= 0) continue;
         candidates.append({profile, speedProduct, groupIndex});
@@ -1023,7 +1026,11 @@ void MainWindow::profile_start(int _id) {
 
                 if (!profile_start_stage2(currentEnt, currentEnt->id == ent->id)) {
                     MW_show_log("<<<<<<<< " + tr("Failed to start profile %1").arg(currentEnt->outbound->DisplayTypeAndName()));
+                    currentEnt->is_broken = true;
+                    currentEnt->latency = -1;
                     resetAutoSwitchSpeedMeasurement(currentEnt);
+                    Configs::dataManager->profilesRepo->Save(currentEnt);
+                    refreshProfileAfterTest(currentEnt->id);
                     currentEnt = selectAutoSwitchCandidate(group, triedIds);
                     if (currentEnt != nullptr) {
                         MW_show_log(tr("Trying next server in group by speed: %1").arg(currentEnt->outbound->DisplayTypeAndName()));
@@ -1034,7 +1041,10 @@ void MainWindow::profile_start(int _id) {
                 QString healthError;
                 int healthLatency = 0;
                 if (healthCheckCurrentProfile(currentEnt, healthError, healthLatency)) {
-                    if (healthLatency > 0) currentEnt->latency = healthLatency;
+                    if (healthLatency > 0) {
+                        currentEnt->latency = healthLatency;
+                        currentEnt->is_broken = false;
+                    }
                     Configs::dataManager->profilesRepo->Save(currentEnt);
                     refreshProfileAfterTest(currentEnt->id);
                     MW_show_log("<<<<<<<< " + tr("Profile %1 is available (%2 ms)").arg(currentEnt->outbound->DisplayTypeAndName()).arg(healthLatency));
@@ -1044,7 +1054,11 @@ void MainWindow::profile_start(int _id) {
 
                 MW_show_log("[Warn] " + tr("Profile %1 is unavailable after start: %2")
                     .arg(currentEnt->outbound->DisplayTypeAndName(), healthError));
+                currentEnt->is_broken = true;
+                currentEnt->latency = -1;
                 resetAutoSwitchSpeedMeasurement(currentEnt);
+                Configs::dataManager->profilesRepo->Save(currentEnt);
+                refreshProfileAfterTest(currentEnt->id);
                 profile_stop(false, true, false);
 
                 currentEnt = selectAutoSwitchCandidate(group, triedIds);
@@ -1143,4 +1157,105 @@ void MainWindow::profile_stop(bool crash, bool block, bool manual) {
             mu_stopping.unlock();
         }, true);
     }, block);
+}
+
+
+void MainWindow::markProfileBrokenAndSwitch(const std::shared_ptr<Configs::Profile>& profile, const QString& reason) {
+    if (profile == nullptr) return;
+
+    profile->is_broken = true;
+    profile->latency = -1;
+    resetAutoSwitchSpeedMeasurement(profile);
+    Configs::dataManager->profilesRepo->Save(profile);
+    runOnUiThread([this, id = profile->id] {
+        refreshProfileAfterTest(id);
+    });
+
+    MW_show_log("[Warn] " + tr("Server %1 is broken (traffic blocked): %2").arg(profile->outbound->DisplayTypeAndName(), reason));
+
+    // Immediately switch to next best candidate in group
+    auto group = Configs::dataManager->groupsRepo->GetGroup(profile->gid);
+    if (group == nullptr) group = Configs::dataManager->groupsRepo->CurrentGroup();
+    if (group != nullptr) {
+        QSet<int> triedIds;
+        triedIds.insert(profile->id);
+        auto nextCandidate = selectAutoSwitchCandidate(group, triedIds);
+        if (nextCandidate != nullptr) {
+            MW_show_log(tr("Auto-switching from broken server to: %1").arg(nextCandidate->outbound->DisplayTypeAndName()));
+            runOnUiThread([this, nextId = nextCandidate->id] {
+                profile_start(nextId);
+            });
+        } else {
+            MW_show_log(tr("No backup servers available in group %1").arg(group->name));
+        }
+    }
+}
+
+void MainWindow::checkCurrentProfileTraffic() {
+    if (Configs::dataManager->settingsRepo->prepare_exit) return;
+    if (running == nullptr) return;
+    if (!core_process || core_process->state() != QProcess::Running) return;
+
+    bool expected = false;
+    if (!trafficWatchdogRunning.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
+    auto currentProfile = running;
+    runOnNewThread([this, currentProfile]() {
+        const std::vector<std::string> testEndpoints = {
+            "http://www.google.com/generate_204",
+            "https://www.youtube.com/generate_204",
+            "http://cp.cloudflare.com/"
+        };
+
+        bool anySuccess = false;
+        QString lastError;
+        int successfulLatency = 0;
+
+        for (const auto& url : testEndpoints) {
+            if (running != currentProfile || Configs::dataManager->settingsRepo->prepare_exit) {
+                trafficWatchdogRunning.store(false);
+                return;
+            }
+
+            libcore::TestReq req;
+            req.test_current = true;
+            req.url = url;
+            req.test_timeout_ms = 4000;
+
+            bool rpcOK = false;
+            auto result = defaultClient->Test(&rpcOK, req);
+            if (rpcOK && !result.results.empty()) {
+                const auto& res = result.results[0];
+                int latency = res.latency_ms.value();
+                if (res.error.value().empty() && latency > 0) {
+                    anySuccess = true;
+                    successfulLatency = latency;
+                    break;
+                } else {
+                    lastError = QString::fromStdString(res.error.value());
+                }
+            } else {
+                lastError = "RPC test failed";
+            }
+        }
+
+        if (running == currentProfile && !Configs::dataManager->settingsRepo->prepare_exit) {
+            if (!anySuccess) {
+                markProfileBrokenAndSwitch(currentProfile, lastError.isEmpty() ? "Foreign traffic check failed (Google/YouTube/Cloudflare unreachable)" : lastError);
+            } else {
+                if (currentProfile->is_broken) {
+                    currentProfile->is_broken = false;
+                    if (successfulLatency > 0) currentProfile->latency = successfulLatency;
+                    Configs::dataManager->profilesRepo->Save(currentProfile);
+                    runOnUiThread([this, id = currentProfile->id] {
+                        refreshProfileAfterTest(id);
+                    });
+                }
+            }
+        }
+
+        trafficWatchdogRunning.store(false);
+    });
 }

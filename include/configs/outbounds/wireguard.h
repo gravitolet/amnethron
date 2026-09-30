@@ -56,6 +56,12 @@ namespace Configs
         QString i4;
         QString i5;
 
+        // AmneziaWG v3 options
+        QString header_protection_key;
+        int content_padding_addition = 0;
+        int random_trailers = 0;
+        bool disable_cookies = false;
+
         // baseConfig overrides
         bool ParseFromLink(const QString& link) override;
         bool ParseFromJson(const QJsonObject& object) override;

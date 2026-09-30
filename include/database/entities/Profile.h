@@ -35,6 +35,7 @@ namespace Configs {
         int id = -1;
         int gid = 0;
         int latency = 0;
+        bool is_broken = false;
         QString dl_speed;
         QString ul_speed;
         QString test_country;

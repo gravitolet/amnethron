@@ -17,6 +17,7 @@ namespace Configs {
         std::string name;
         int gid;
         int latency;
+        bool is_broken = false;
         std::string dl_speed;
         std::string ul_speed;
         std::string test_country;

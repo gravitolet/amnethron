@@ -203,6 +203,34 @@ namespace Configs {
         return defaultChain;
     }
 
+    std::shared_ptr<RouteProfile> RouteProfile::GetBypassRussiaChain() {
+        auto chain = std::make_shared<RouteProfile>();
+        chain->name = "Bypass Russia";
+        chain->defaultOutboundID = proxyID;
+
+        auto dnsRule = std::make_shared<RouteRule>();
+        dnsRule->name = "Route DNS";
+        dnsRule->action = "hijack-dns";
+        dnsRule->protocol = "dns";
+        chain->Rules << dnsRule;
+
+        auto privateRule = std::make_shared<RouteRule>();
+        privateRule->name = "Bypass Private IP";
+        privateRule->action = "route";
+        privateRule->outboundID = directID;
+        privateRule->ip_is_private = true;
+        chain->Rules << privateRule;
+
+        auto ruRule = std::make_shared<RouteRule>();
+        ruRule->name = "Bypass Russia";
+        ruRule->action = "route";
+        ruRule->outboundID = directID;
+        ruRule->rule_set = {"geoip-ru", "geosite-ru", "geosite-category-ru", "geosite-ru-available-only-inside"};
+        chain->Rules << ruRule;
+
+        return chain;
+    }
+
     std::shared_ptr<QList<int>> RouteProfile::get_used_outbounds() {
         auto res = std::make_shared<QList<int>>();
         for (const auto& item: Rules) {

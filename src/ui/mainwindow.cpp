@@ -81,6 +81,7 @@
 #include <QStyleHints>
 #endif
 #include <QFileDialog>
+#include <QActionGroup>
 #include <QToolTip>
 #include <QMimeData>
 #include <random>
@@ -278,6 +279,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     // handle AutoRun migration and privilege matching
     AutoRun_FixPrivilegeIfNeeded();
     AutoRun_MigrateIfNeeded();
+#ifdef Q_OS_WIN
+    if (!Configs::dataManager->settingsRepo->autorun_initialized) {
+        AutoRun_SetEnabled(true);
+        Configs::dataManager->settingsRepo->autorun_initialized = true;
+        Configs::dataManager->settingsRepo->Save();
+    }
+#endif
 
     // register the throne:// URL scheme (self-heals if the install was moved)
     UrlScheme_RegisterIfNeeded();
@@ -981,9 +989,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             runOnNewThread(getRemoteRouteProfiles);
         ui->menuRouting_Menu->clear();
         ui->menuRouting_Menu->addAction(ui->menu_routing_settings);
+        ui->menuRouting_Menu->addSeparator();
 
         auto* actionAdblock = new QAction(ui->menuRouting_Menu);
-        actionAdblock->setText("Enable AdBlock");
+        actionAdblock->setText(tr("Enable AdBlock"));
         actionAdblock->setCheckable(true);
         actionAdblock->setChecked(Configs::dataManager->settingsRepo->adblock_enable);
         connect(actionAdblock, &QAction::triggered, this, [=,this](bool checked) {
@@ -995,7 +1004,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         ui->menuRouting_Menu->addAction(actionAdblock);
 
         auto* actionWarp = new QAction(ui->menuRouting_Menu);
-        actionWarp->setText("Enable Warp");
+        actionWarp->setText(tr("Enable Warp"));
         actionWarp->setCheckable(true);
         actionWarp->setChecked(Configs::dataManager->settingsRepo->enable_warp);
         connect(actionWarp, &QAction::triggered, this, [=,this](bool checked) {
@@ -1008,6 +1017,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
         mu_remoteRouteProfiles.lock();
         if(!remoteRouteProfiles.isEmpty()) {
+            ui->menuRouting_Menu->addSeparator();
             QMenu* profilesMenu = ui->menuRouting_Menu->addMenu(QObject::tr("Download Profiles"));
             for (const auto& profile : remoteRouteProfiles)
             {
@@ -1044,6 +1054,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         mu_remoteRouteProfiles.unlock();
 
         ui->menuRouting_Menu->addSeparator();
+        auto* routeGroup = new QActionGroup(ui->menuRouting_Menu);
+        routeGroup->setExclusive(true);
         for (const auto& route : Configs::dataManager->routesRepo->GetAllRouteProfiles())
         {
             auto* action = new QAction(ui->menuRouting_Menu);
@@ -1051,6 +1063,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
             action->setData(route->id);
             action->setCheckable(true);
             action->setChecked(Configs::dataManager->settingsRepo->current_route_id == route->id);
+            routeGroup->addAction(action);
             connect(action, &QAction::triggered, this, [=,this]()
             {
                 auto routeID = action->data().toInt();
@@ -1235,6 +1248,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     };
     connect(TM_auto_speedtest, &QTimer::timeout, this, [&] { autoSpeedTestAndSwitch(); });
     TM_auto_speedtest_Reset_Minute(Configs::dataManager->settingsRepo->auto_speedtest_update);
+
+    // periodic traffic watchdog (verifies foreign connectivity & switches if broken)
+    TM_traffic_watchdog = new QTimer(this);
+    connect(TM_traffic_watchdog, &QTimer::timeout, this, [this] { checkCurrentProfileTraffic(); });
+    TM_traffic_watchdog->start(15000);
 
     if (!Configs::dataManager->settingsRepo->flag_tray) show();
 

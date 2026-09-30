@@ -88,5 +88,6 @@ out
 /libs
 srslist.h
 .claude
+.claude/skills/
 .tools/
 .qt/

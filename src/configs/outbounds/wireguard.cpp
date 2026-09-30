@@ -207,6 +207,10 @@ namespace Configs {
                 if (normalizedKey == "i3") i3 = value, enable_amnezia = true;
                 if (normalizedKey == "i4") i4 = value, enable_amnezia = true;
                 if (normalizedKey == "i5") i5 = value, enable_amnezia = true;
+                if (normalizedKey == "headerprotectionkey" || normalizedKey == "hpk") header_protection_key = value, enable_amnezia = true;
+                if (normalizedKey == "contentpaddingaddition" || normalizedKey == "cpa") content_padding_addition = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "randomtrailers") random_trailers = value.toInt(), enable_amnezia = true;
+                if (normalizedKey == "disablecookies") disable_cookies = (value == "1" || value.compare("true", Qt::CaseInsensitive) == 0), enable_amnezia = true;
             }
             FixAddress();
             if (!peer->allowed_ips.isEmpty()) {
@@ -252,6 +256,12 @@ namespace Configs {
         if (query.hasQueryItem("i3")) i3 = query.queryItemValue("i3"), enable_amnezia = true;
         if (query.hasQueryItem("i4")) i4 = query.queryItemValue("i4"), enable_amnezia = true;
         if (query.hasQueryItem("i5")) i5 = query.queryItemValue("i5"), enable_amnezia = true;
+        if (query.hasQueryItem("header_protection_key")) header_protection_key = query.queryItemValue("header_protection_key"), enable_amnezia = true;
+        if (query.hasQueryItem("hpk")) header_protection_key = query.queryItemValue("hpk"), enable_amnezia = true;
+        if (query.hasQueryItem("content_padding_addition")) content_padding_addition = query.queryItemValue("content_padding_addition").toInt(), enable_amnezia = true;
+        if (query.hasQueryItem("cpa")) content_padding_addition = query.queryItemValue("cpa").toInt(), enable_amnezia = true;
+        if (query.hasQueryItem("random_trailers")) random_trailers = query.queryItemValue("random_trailers").toInt(), enable_amnezia = true;
+        if (query.hasQueryItem("disable_cookies")) disable_cookies = (query.queryItemValue("disable_cookies") == "true" || query.queryItemValue("disable_cookies") == "1"), enable_amnezia = true;
         FixAddress();
         if (!peer->allowed_ips.isEmpty()) {
             peer->allowed_ips = filterAllowedIpsForLocalAddresses(peer->allowed_ips, address);
@@ -311,6 +321,10 @@ namespace Configs {
             if (!i3.isEmpty()) query.addQueryItem("i3", i3);
             if (!i4.isEmpty()) query.addQueryItem("i4", i4);
             if (!i5.isEmpty()) query.addQueryItem("i5", i5);
+            if (!header_protection_key.isEmpty()) query.addQueryItem("header_protection_key", header_protection_key);
+            if (content_padding_addition > 0) query.addQueryItem("content_padding_addition", QString::number(content_padding_addition));
+            if (random_trailers > 0) query.addQueryItem("random_trailers", QString::number(random_trailers));
+            if (disable_cookies) query.addQueryItem("disable_cookies", "true");
         }
 
         mergeUrlQuery(query, outbound::ExportToLink());
@@ -394,7 +408,13 @@ namespace Configs {
 
     QString wireguard::DisplayType()
     {
-        return enable_amnezia ? "Amnezia-WG" : "WireGuard";
+        if (enable_amnezia) {
+            if (!header_protection_key.isEmpty() || content_padding_addition > 0 || random_trailers > 0 || disable_cookies) {
+                return "Amnezia-WG v3";
+            }
+            return "Amnezia-WG";
+        }
+        return "WireGuard";
     }
 
     bool wireguard::IsEndpoint()
@@ -422,6 +442,15 @@ namespace Configs {
         if (!i3.isEmpty()) object["i3"] = i3;
         if (!i4.isEmpty()) object["i4"] = i4;
         if (!i5.isEmpty()) object["i5"] = i5;
+        if (!header_protection_key.isEmpty()) {
+            bool ok = false;
+            qint64 val = header_protection_key.toLongLong(&ok);
+            if (ok) object["header_protection_key"] = val;
+            else object["header_protection_key"] = header_protection_key;
+        }
+        if (content_padding_addition > 0) object["content_padding_addition"] = content_padding_addition;
+        if (random_trailers > 0) object["random_trailers"] = random_trailers;
+        if (disable_cookies) object["disable_cookies"] = true;
         return object;
     }
 
@@ -445,6 +474,22 @@ namespace Configs {
         if (object.contains("i3")) i3 = object["i3"].toString();
         if (object.contains("i4")) i4 = object["i4"].toString();
         if (object.contains("i5")) i5 = object["i5"].toString();
+        if (object.contains("header_protection_key")) {
+            header_protection_key = object["header_protection_key"].toVariant().toString();
+        } else if (object.contains("hpk")) {
+            header_protection_key = object["hpk"].toVariant().toString();
+        }
+        if (object.contains("content_padding_addition")) {
+            content_padding_addition = object["content_padding_addition"].toInt();
+        } else if (object.contains("cpa")) {
+            content_padding_addition = object["cpa"].toInt();
+        }
+        if (object.contains("random_trailers")) {
+            random_trailers = object["random_trailers"].toInt();
+        }
+        if (object.contains("disable_cookies")) {
+            disable_cookies = object["disable_cookies"].toBool();
+        }
     }
 
     void wireguard::FixAddress() {

@@ -32,6 +32,7 @@ namespace Configs {
         QJsonArray get_route_rules(bool forView = false, std::map<int, QString> outboundMap = {});
 
         static std::shared_ptr<RouteProfile> GetDefaultChain();
+        static std::shared_ptr<RouteProfile> GetBypassRussiaChain();
 
         std::shared_ptr<QList<int>> get_used_outbounds();
 

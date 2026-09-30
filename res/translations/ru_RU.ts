@@ -2238,6 +2238,22 @@ https://matsuridayo.github.io/n-configuration/#vpn-tun</translation>
 <context>
     <name>MainWindow</name>
     <message>
+        <source>Enable AdBlock</source>
+        <translation>Включить AdBlock</translation>
+    </message>
+    <message>
+        <source>Enable Warp</source>
+        <translation>Включить Warp</translation>
+    </message>
+    <message>
+        <source>Server is broken: foreign traffic check failed</source>
+        <translation>Сервер сломан: проверка зарубежного трафика не прошла</translation>
+    </message>
+    <message>
+        <source>Broken</source>
+        <translation>Сломан</translation>
+    </message>
+    <message>
         <source>Program</source>
         <translation>Программа</translation>
     </message>
@@ -2938,6 +2954,14 @@ https://matsuridayo.github.io/n-configuration/#vpn-tun</translation>
 <context>
     <name>ProfilesTableModel</name>
     <message>
+        <source>Server is broken: foreign traffic check failed</source>
+        <translation>Сервер сломан: проверка зарубежного трафика не прошла</translation>
+    </message>
+    <message>
+        <source>Broken</source>
+        <translation>Сломан</translation>
+    </message>
+    <message>
         <source>Type</source>
         <translation>Тип</translation>
     </message>
@@ -2978,6 +3002,10 @@ https://matsuridayo.github.io/n-configuration/#vpn-tun</translation>
 </context>
 <context>
     <name>QObject</name>
+    <message>
+        <source>Broken</source>
+        <translation>Сломан</translation>
+    </message>
     <message>
         <source>Request with proxy but no profile started.</source>
         <translation>Запрос через прокси, но профиль не запущен.</translation>

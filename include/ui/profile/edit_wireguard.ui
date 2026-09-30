@@ -293,6 +293,43 @@
       <item row="15" column="3">
        <widget class="QLineEdit" name="i5"/>
       </item>
+      <item row="17" column="0">
+       <widget class="QLabel" name="hpk_l">
+        <property name="text">
+         <string>Header Protection Key (HPK)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="17" column="1">
+       <widget class="QLineEdit" name="hpk"/>
+      </item>
+      <item row="17" column="2">
+       <widget class="QLabel" name="cpa_l">
+        <property name="text">
+         <string>Content Padding Addition (CPA)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="17" column="3">
+       <widget class="QLineEdit" name="cpa"/>
+      </item>
+      <item row="19" column="0">
+       <widget class="QLabel" name="random_trailers_l">
+        <property name="text">
+         <string>Random Trailers</string>
+        </property>
+       </widget>
+      </item>
+      <item row="19" column="1">
+       <widget class="QLineEdit" name="random_trailers"/>
+      </item>
+      <item row="19" column="2">
+       <widget class="QCheckBox" name="disable_cookies">
+        <property name="text">
+         <string>Disable Cookies</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

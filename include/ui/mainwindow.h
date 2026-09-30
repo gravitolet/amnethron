@@ -353,6 +353,11 @@ private:
     // beats the running server by at least auto_switch_speed_threshold percent.
     void autoSwitchBySpeed();
 
+    QTimer* TM_traffic_watchdog = nullptr;
+    std::atomic<bool> trafficWatchdogRunning = false;
+    void checkCurrentProfileTraffic();
+    void markProfileBrokenAndSwitch(const std::shared_ptr<Configs::Profile>& profile, const QString& reason);
+
     // onFinished runs on the UI thread after a non-cancelled batch completes.
     void speedtest_current_group(const QList<int>& profileIDs, bool testCurrent = false,
                                  std::function<void()> onFinished = {}, bool silentIfBusy = false);

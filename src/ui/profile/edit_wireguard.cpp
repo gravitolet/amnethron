@@ -43,6 +43,10 @@ void EditWireguard::onStart(std::shared_ptr<Configs::Profile> _ent) {
     ui->i3->setText(outbound->i3);
     ui->i4->setText(outbound->i4);
     ui->i5->setText(outbound->i5);
+    ui->hpk->setText(outbound->header_protection_key);
+    ui->cpa->setText(outbound->content_padding_addition > 0 ? Int2String(outbound->content_padding_addition) : "");
+    ui->random_trailers->setText(outbound->random_trailers > 0 ? Int2String(outbound->random_trailers) : "");
+    ui->disable_cookies->setChecked(outbound->disable_cookies);
 }
 
 bool EditWireguard::onEnd() {
@@ -80,6 +84,10 @@ bool EditWireguard::onEnd() {
     outbound->i3 = ui->i3->text();
     outbound->i4 = ui->i4->text();
     outbound->i5 = ui->i5->text();
+    outbound->header_protection_key = ui->hpk->text().trimmed();
+    outbound->content_padding_addition = ui->cpa->text().trimmed().toInt();
+    outbound->random_trailers = ui->random_trailers->text().trimmed().toInt();
+    outbound->disable_cookies = ui->disable_cookies->isChecked();
 
     return true;
 }

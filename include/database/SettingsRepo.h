@@ -134,21 +134,22 @@ namespace Configs {
         bool remember_system_proxy = false;
         bool remember_tun = false;
         int remember_id = -1919;
-        bool remember_enable = false;
+        bool remember_enable = true;
+        bool autorun_initialized = false;
         bool windows_set_admin = false;
         QMap<QString, QKeySequence> shortcuts;
 
         // Routing
-        int current_route_id = 1;
+        int current_route_id = 2;
         QString remote_dns = "tls://8.8.8.8";
-        QString remote_dns_strategy = "";
-        QString direct_dns = "localhost";
-        QString direct_dns_strategy = "";
+        QString remote_dns_strategy = "ipv4_only";
+        QString direct_dns = "77.88.8.8";
+        QString direct_dns_strategy = "ipv4_only";
         bool enable_dns_routing = true;
         bool use_dns_object = false;
         QString dns_object = "";
         QString dns_final_out = "remote";
-        QString resolve_domain_strategy = "";
+        QString resolve_domain_strategy = "prefer_ipv4";
         QString default_domain_strategy = "";
         int sniffing_mode = SniffingMode::FOR_ROUTING;
         int ruleset_mirror = Mirrors::CLOUDFLARE;
@@ -166,7 +167,7 @@ namespace Configs {
 
         // Routing
         QString custom_route_global = "{\"rules\": []}";
-        QString active_routing = "Default";
+        QString active_routing = "Bypass Russia";
         bool adblock_enable = false;
 
         // VPN
