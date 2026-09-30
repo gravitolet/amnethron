@@ -21,6 +21,8 @@ description: Build, stage, package, run, smoke-test, and publish the AmneThron/T
 - Require user verification only when the result depends on visual, interactive, network, or environment-specific evidence that cannot be checked safely with the available tools, or when the user explicitly requests a review checkpoint.
 - If user verification is required, state the exact check before building the installer. After the user confirms it, resume the installer and publication workflow without asking again.
 - Stop after a portable build only when the user explicitly requests a local/staging/preview build or explicitly says not to publish.
+- При отправке анонсов в Telegram через UI/CDP автоматизацию проверять очистку поля ввода и выдерживать паузу до рендера бабла, не допуская повторной слепой отправки ([L-20260930-1](references/lessons.md)).
+
 
 ## Failure Learning Rule
 
