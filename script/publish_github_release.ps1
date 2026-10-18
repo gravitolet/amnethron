@@ -18,9 +18,30 @@ function Get-GitHubToken {
         if (-not [string]::IsNullOrWhiteSpace($value)) { return $value.Trim() }
     }
 
-    $credentialInput = "protocol=https`nhost=github.com`n`n"
-    $credentialLines = $credentialInput | git credential fill 2>$null
-    if ($LASTEXITCODE -ne 0) { return '' }
+    # With a UTF-8 console, PowerShell 5.1 / .NET Framework send a UTF-8 BOM
+    # ahead of redirected stdin (the stdin writer auto-flushes its preamble), and
+    # git rejects the first line: "credential missing protocol field".
+    # Use a BOM-less console input encoding for the duration of the call.
+    $savedInputEncoding = [Console]::InputEncoding
+    try {
+        [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'git'
+        $psi.Arguments = 'credential fill'
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $proc.StandardInput.Write("protocol=https`nhost=github.com`n`n")
+        $proc.StandardInput.Close()
+        $credentialLines = $proc.StandardOutput.ReadToEnd() -split "`r?`n"
+        [void]$proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+    } finally {
+        [Console]::InputEncoding = $savedInputEncoding
+    }
+    if ($proc.ExitCode -ne 0) { return '' }
     foreach ($line in $credentialLines) {
         if ($line -like 'password=*') { return $line.Substring('password='.Length) }
     }
