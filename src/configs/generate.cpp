@@ -435,7 +435,6 @@ namespace Configs {
         auto dnsDeps = ctx->buildPrerequisities->dnsDeps;
         auto hijackDeps = ctx->buildPrerequisities->hijackDeps;
         bool isTailscale = ctx->ent->type == "tailscale";
-        bool independentCache = false;
         QJsonArray servers;
         QJsonArray rules;
         // remote
@@ -525,7 +524,6 @@ namespace Configs {
             rules += QJsonObject{
                 {"process_path", coreProcessPaths},
                 {"action", "route"},
-                {"strategy", dataManager->settingsRepo->direct_dns_strategy},
                 {"server", "dns-direct"},
             };
         }
@@ -575,7 +573,6 @@ namespace Configs {
                  {"action", "route"},
                  {"server", "dns-fake"}
             };
-            independentCache = true;
         }
 
         if (dnsDeps->needDirectDnsRules) {
@@ -586,7 +583,6 @@ namespace Configs {
                     {"domain_keyword", dnsDeps->directKeywords},
                     {"domain_regex", dnsDeps->directRegexes},
                     {"action", "route"},
-                    {"strategy", dataManager->settingsRepo->direct_dns_strategy},
                     {"server", "dns-direct"},
                 };
         }
@@ -605,7 +601,6 @@ namespace Configs {
                     {"domain_keyword", dnsDeps->proxyKeywords},
                     {"domain_regex", dnsDeps->proxyRegexes},
                     {"action", "route"},
-                    {"strategy", dataManager->settingsRepo->remote_dns_strategy},
                     {"server", "dns-remote"},
                 };
         }
@@ -613,11 +608,6 @@ namespace Configs {
         // final rule: proxy
         auto finalStrategy = useDirectFinalDNS ? dataManager->settingsRepo->direct_dns_strategy : dataManager->settingsRepo->remote_dns_strategy;
         auto finalDNS = useDirectFinalDNS ? "dns-direct" : "dns-remote";
-        rules += QJsonObject{
-            {"strategy", finalStrategy},
-            {"action", "route"},
-            {"server", finalDNS},
-        };
 
         // Local
         auto dnsLocalAddress = Configs::dataManager->settingsRepo->core_box_underlying_dns.isEmpty() ? "local" : Configs::dataManager->settingsRepo->core_box_underlying_dns;
@@ -627,9 +617,12 @@ namespace Configs {
 
         auto dnsObj = QJsonObject{
             {"servers", servers},
-            {"rules", rules}
+            {"rules", rules},
+            {"final", finalDNS}
         };
-        if (independentCache) dnsObj["independent_cache"] = true;
+        if (!finalStrategy.isEmpty()) {
+            dnsObj["strategy"] = finalStrategy;
+        }
         ctx->buildConfigResult->coreConfig["dns"] = dnsObj;
     }
 
@@ -1310,7 +1303,10 @@ namespace Configs {
         route["default_domain_resolver"] = QJsonObject{
                                 {"server", "dns-direct"},
                                 {"strategy", Configs::dataManager->settingsRepo->default_domain_strategy}};
-        if (Configs::dataManager->settingsRepo->spmode_vpn) route["auto_detect_interface"] = true;
+        // Always, as BuildTestConfig does: without it the
+        // endpoint dials follow OS routes, which another VPN on the host may
+        // steer elsewhere, so proxy-only mode broke while TUN and tests worked.
+        route["auto_detect_interface"] = true;
 
         ctx->buildConfigResult->coreConfig["route"] = route;
     }

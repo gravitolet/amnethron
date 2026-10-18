@@ -196,7 +196,7 @@ func dispatch(methodName string, payload []byte) ([]byte, error) {
 		}
 		return proto.Marshal(resp)
 
-	case "ListConnections":
+	case "ListConnections", "QueryConnections": // upstream 1.3.2 renamed it; reply field 1 is the same
 		req := &gen.EmptyReq{}
 		if err := proto.Unmarshal(payload, req); err != nil {
 			return nil, err

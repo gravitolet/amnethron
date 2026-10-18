@@ -11,6 +11,8 @@ service LibcoreService {
   rpc StopTest(EmptyReq) returns (EmptyResp);
   rpc QueryURLTest(EmptyReq) returns (QueryURLTestResponse);
   rpc QueryStats(EmptyReq) returns (QueryStatsResp);
+  // The GUI calls this as "QueryConnections" (upstream 1.3.2 name, used by the
+  // shipped ThroneCore); field 1 matches upstream QueryConnectionsResp.active.
   rpc ListConnections(EmptyReq) returns (ListConnectionsResp);
   //
   rpc SetSystemDNS(SetSystemDNSRequest) returns (EmptyResp);

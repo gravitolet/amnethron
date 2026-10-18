@@ -20,7 +20,7 @@ void EditWireguard::onStart(std::shared_ptr<Configs::Profile> _ent) {
     ui->public_key->setText(outbound->peer->public_key);
     ui->preshared_key->setText(outbound->peer->pre_shared_key);
     ui->reserved->setText(QListInt2QListString(outbound->peer->reserved).join(","));
-    ui->persistent_keepalive->setText(Int2String(outbound->peer->persistent_keepalive));
+    ui->persistent_keepalive->setText(outbound->peer->persistent_keepalive);
     ui->mtu->setText(Int2String(outbound->mtu));
     ui->sys_ifc->setChecked(outbound->system);
     ui->local_addr->setText(outbound->address.join(","));
@@ -44,8 +44,8 @@ void EditWireguard::onStart(std::shared_ptr<Configs::Profile> _ent) {
     ui->i4->setText(outbound->i4);
     ui->i5->setText(outbound->i5);
     ui->hpk->setText(outbound->header_protection_key);
-    ui->cpa->setText(outbound->content_padding_addition > 0 ? Int2String(outbound->content_padding_addition) : "");
-    ui->random_trailers->setText(outbound->random_trailers > 0 ? Int2String(outbound->random_trailers) : "");
+    ui->cpa->setText(outbound->content_padding_addition);
+    ui->random_trailers->setText(outbound->random_trailers ? "on" : "");
     ui->disable_cookies->setChecked(outbound->disable_cookies);
 }
 
@@ -61,7 +61,7 @@ bool EditWireguard::onEnd() {
         if (item.trimmed().isEmpty()) continue;
         outbound->peer->reserved += item.trimmed().toInt();
     }
-    outbound->peer->persistent_keepalive = ui->persistent_keepalive->text().trimmed().toInt();
+    outbound->peer->persistent_keepalive = ui->persistent_keepalive->text().trimmed();
     outbound->mtu = ui->mtu->text().toInt();
     outbound->system = ui->sys_ifc->isChecked();
     outbound->address = ui->local_addr->text().replace(" ", "").split(",");
@@ -85,8 +85,9 @@ bool EditWireguard::onEnd() {
     outbound->i4 = ui->i4->text();
     outbound->i5 = ui->i5->text();
     outbound->header_protection_key = ui->hpk->text().trimmed();
-    outbound->content_padding_addition = ui->cpa->text().trimmed().toInt();
-    outbound->random_trailers = ui->random_trailers->text().trimmed().toInt();
+    outbound->content_padding_addition = ui->cpa->text().trimmed();
+    auto rtText = ui->random_trailers->text().trimmed();
+    outbound->random_trailers = (rtText == "1" || rtText.compare("on", Qt::CaseInsensitive) == 0 || rtText.compare("true", Qt::CaseInsensitive) == 0);
     outbound->disable_cookies = ui->disable_cookies->isChecked();
 
     return true;

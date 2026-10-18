@@ -85,7 +85,7 @@ namespace Configs {
                 }
             }
         }
-        if (query.hasQueryItem("persistent_keepalive_interval")) persistent_keepalive = query.queryItemValue("persistent_keepalive_interval").toInt();
+        if (query.hasQueryItem("persistent_keepalive_interval")) persistent_keepalive = query.queryItemValue("persistent_keepalive_interval");
         if (query.hasQueryItem("allowed_ips")) allowed_ips = splitCommaSeparatedList(query.queryItemValue("allowed_ips", QUrl::FullyDecoded));
         
         return true;
@@ -101,7 +101,10 @@ namespace Configs {
         if (object.contains("reserved")) {
             reserved = QJsonArray2QListInt(object["reserved"].toArray());
         }
-        if (object.contains("persistent_keepalive_interval")) persistent_keepalive = object["persistent_keepalive_interval"].toInt();
+        if (object.contains("persistent_keepalive_interval")) {
+            const auto& val = object["persistent_keepalive_interval"];
+            persistent_keepalive = val.isString() ? val.toString() : Int2String(val.toInt());
+        }
         if (object.contains("allowed_ips")) allowed_ips = QJsonArray2QListString(object["allowed_ips"].toArray());
         return true;
     }
@@ -118,7 +121,7 @@ namespace Configs {
             }
             query.addQueryItem("reserved", reservedStr.join("-"));
         }
-        if (persistent_keepalive > 0) query.addQueryItem("persistent_keepalive_interval", QString::number(persistent_keepalive));
+        if (!persistent_keepalive.isEmpty() && persistent_keepalive != "0") query.addQueryItem("persistent_keepalive_interval", persistent_keepalive);
         if (!allowed_ips.isEmpty()) query.addQueryItem("allowed_ips", allowed_ips.join(","));
         return query.toString();
     }
@@ -131,7 +134,7 @@ namespace Configs {
         if (!public_key.isEmpty()) object["public_key"] = public_key;
         if (!pre_shared_key.isEmpty()) object["pre_shared_key"] = pre_shared_key;
         if (!reserved.isEmpty()) object["reserved"] = QListInt2QJsonArray(reserved);
-        if (persistent_keepalive > 0) object["persistent_keepalive_interval"] = persistent_keepalive;
+        WriteKeepalive(object);
         if (!allowed_ips.isEmpty()) object["allowed_ips"] = QListStr2QJsonArray(allowed_ips);
         return object;
     }
@@ -144,9 +147,24 @@ namespace Configs {
         if (!public_key.isEmpty()) object["public_key"] = public_key;
         if (!pre_shared_key.isEmpty()) object["pre_shared_key"] = pre_shared_key;
         if (!reserved.isEmpty()) object["reserved"] = QListInt2QJsonArray(reserved);
-        if (persistent_keepalive > 0) object["persistent_keepalive_interval"] = persistent_keepalive;
+        WriteKeepalive(object);
         if (!allowed_ips.isEmpty()) object["allowed_ips"] = QListStr2QJsonArray(allowed_ips);
         return {object, ""};
+    }
+
+    void Peer::WriteKeepalive(QJsonObject& object) const
+    {
+        if (persistent_keepalive.isEmpty()) return;
+        bool numeric = false;
+        int seconds = persistent_keepalive.toInt(&numeric);
+        if (numeric) {
+            if (seconds > 0) object["persistent_keepalive_interval"] = seconds;
+            return;
+        }
+        static const QRegularExpression rangeRe("^\\d+-\\d+$");
+        if (rangeRe.match(persistent_keepalive).hasMatch()) {
+            object["persistent_keepalive_interval"] = persistent_keepalive;
+        }
     }
 
     bool wireguard::ParseFromLink(const QString& link)
@@ -172,7 +190,7 @@ namespace Configs {
                 if (normalizedKey == "publickey") peer->public_key = value;
                 if (normalizedKey == "presharedkey") peer->pre_shared_key = value;
                 if (normalizedKey == "allowedips") peer->allowed_ips = splitCommaSeparatedList(value);
-                if (normalizedKey == "persistentkeepalive") peer->persistent_keepalive = value.toInt();
+                if (normalizedKey == "persistentkeepalive") peer->persistent_keepalive = value;
                 if (normalizedKey == "endpoint") {
                     auto endpoint = QUrl::fromUserInput(value);
                     if (!endpoint.host().isEmpty() && endpoint.port() > 0) {
@@ -208,9 +226,20 @@ namespace Configs {
                 if (normalizedKey == "i4") i4 = value, enable_amnezia = true;
                 if (normalizedKey == "i5") i5 = value, enable_amnezia = true;
                 if (normalizedKey == "headerprotectionkey" || normalizedKey == "hpk") header_protection_key = value, enable_amnezia = true;
-                if (normalizedKey == "contentpaddingaddition" || normalizedKey == "cpa") content_padding_addition = value.toInt(), enable_amnezia = true;
-                if (normalizedKey == "randomtrailers") random_trailers = value.toInt(), enable_amnezia = true;
-                if (normalizedKey == "disablecookies") disable_cookies = (value == "1" || value.compare("true", Qt::CaseInsensitive) == 0), enable_amnezia = true;
+                if (normalizedKey == "contentpaddingaddition" || normalizedKey == "cpa") content_padding_addition = value, enable_amnezia = true;
+                if (normalizedKey == "rekeyaftertime") rekey_after_time = value, enable_amnezia = true;
+                if (normalizedKey == "rekeytimeout") rekey_timeout = value, enable_amnezia = true;
+                if (normalizedKey == "rejectaftertime") reject_after_time = value, enable_amnezia = true;
+                if (normalizedKey == "keepalivetimeout") keepalive_timeout = value, enable_amnezia = true;
+                if (normalizedKey == "maxhandshakeattempts") max_handshake_attempts = value, enable_amnezia = true;
+                if (normalizedKey == "randomtrailers") {
+                    random_trailers = (value == "1" || value.compare("true", Qt::CaseInsensitive) == 0 || value.compare("on", Qt::CaseInsensitive) == 0);
+                    enable_amnezia = true;
+                }
+                if (normalizedKey == "disablecookies") {
+                    disable_cookies = (value == "1" || value.compare("true", Qt::CaseInsensitive) == 0 || value.compare("on", Qt::CaseInsensitive) == 0);
+                    enable_amnezia = true;
+                }
             }
             FixAddress();
             if (!peer->allowed_ips.isEmpty()) {
@@ -258,10 +287,23 @@ namespace Configs {
         if (query.hasQueryItem("i5")) i5 = query.queryItemValue("i5"), enable_amnezia = true;
         if (query.hasQueryItem("header_protection_key")) header_protection_key = query.queryItemValue("header_protection_key"), enable_amnezia = true;
         if (query.hasQueryItem("hpk")) header_protection_key = query.queryItemValue("hpk"), enable_amnezia = true;
-        if (query.hasQueryItem("content_padding_addition")) content_padding_addition = query.queryItemValue("content_padding_addition").toInt(), enable_amnezia = true;
-        if (query.hasQueryItem("cpa")) content_padding_addition = query.queryItemValue("cpa").toInt(), enable_amnezia = true;
-        if (query.hasQueryItem("random_trailers")) random_trailers = query.queryItemValue("random_trailers").toInt(), enable_amnezia = true;
-        if (query.hasQueryItem("disable_cookies")) disable_cookies = (query.queryItemValue("disable_cookies") == "true" || query.queryItemValue("disable_cookies") == "1"), enable_amnezia = true;
+        if (query.hasQueryItem("content_padding_addition")) content_padding_addition = query.queryItemValue("content_padding_addition"), enable_amnezia = true;
+        if (query.hasQueryItem("cpa")) content_padding_addition = query.queryItemValue("cpa"), enable_amnezia = true;
+        if (query.hasQueryItem("rekey_after_time")) rekey_after_time = query.queryItemValue("rekey_after_time"), enable_amnezia = true;
+        if (query.hasQueryItem("rekey_timeout")) rekey_timeout = query.queryItemValue("rekey_timeout"), enable_amnezia = true;
+        if (query.hasQueryItem("reject_after_time")) reject_after_time = query.queryItemValue("reject_after_time"), enable_amnezia = true;
+        if (query.hasQueryItem("keepalive_timeout")) keepalive_timeout = query.queryItemValue("keepalive_timeout"), enable_amnezia = true;
+        if (query.hasQueryItem("max_handshake_attempts")) max_handshake_attempts = query.queryItemValue("max_handshake_attempts"), enable_amnezia = true;
+        if (query.hasQueryItem("random_trailers")) {
+            auto val = query.queryItemValue("random_trailers");
+            random_trailers = (val == "1" || val.compare("true", Qt::CaseInsensitive) == 0 || val.compare("on", Qt::CaseInsensitive) == 0);
+            enable_amnezia = true;
+        }
+        if (query.hasQueryItem("disable_cookies")) {
+            auto val = query.queryItemValue("disable_cookies");
+            disable_cookies = (val == "true" || val == "1" || val.compare("on", Qt::CaseInsensitive) == 0);
+            enable_amnezia = true;
+        }
         FixAddress();
         if (!peer->allowed_ips.isEmpty()) {
             peer->allowed_ips = filterAllowedIpsForLocalAddresses(peer->allowed_ips, address);
@@ -322,8 +364,13 @@ namespace Configs {
             if (!i4.isEmpty()) query.addQueryItem("i4", i4);
             if (!i5.isEmpty()) query.addQueryItem("i5", i5);
             if (!header_protection_key.isEmpty()) query.addQueryItem("header_protection_key", header_protection_key);
-            if (content_padding_addition > 0) query.addQueryItem("content_padding_addition", QString::number(content_padding_addition));
-            if (random_trailers > 0) query.addQueryItem("random_trailers", QString::number(random_trailers));
+            if (!content_padding_addition.isEmpty() && content_padding_addition != "0") query.addQueryItem("content_padding_addition", content_padding_addition);
+            if (!rekey_after_time.isEmpty()) query.addQueryItem("rekey_after_time", rekey_after_time);
+            if (!rekey_timeout.isEmpty()) query.addQueryItem("rekey_timeout", rekey_timeout);
+            if (!reject_after_time.isEmpty()) query.addQueryItem("reject_after_time", reject_after_time);
+            if (!keepalive_timeout.isEmpty()) query.addQueryItem("keepalive_timeout", keepalive_timeout);
+            if (!max_handshake_attempts.isEmpty()) query.addQueryItem("max_handshake_attempts", max_handshake_attempts);
+            if (random_trailers) query.addQueryItem("random_trailers", "true");
             if (disable_cookies) query.addQueryItem("disable_cookies", "true");
         }
 
@@ -409,7 +456,10 @@ namespace Configs {
     QString wireguard::DisplayType()
     {
         if (enable_amnezia) {
-            if (!header_protection_key.isEmpty() || content_padding_addition > 0 || random_trailers > 0 || disable_cookies) {
+            if (!header_protection_key.isEmpty() || !content_padding_addition.isEmpty() ||
+                !rekey_after_time.isEmpty() || !rekey_timeout.isEmpty() ||
+                !reject_after_time.isEmpty() || !keepalive_timeout.isEmpty() ||
+                !max_handshake_attempts.isEmpty() || random_trailers || disable_cookies) {
                 return "Amnezia-WG v3";
             }
             return "Amnezia-WG";
@@ -448,8 +498,26 @@ namespace Configs {
             if (ok) object["header_protection_key"] = val;
             else object["header_protection_key"] = header_protection_key;
         }
-        if (content_padding_addition > 0) object["content_padding_addition"] = content_padding_addition;
-        if (random_trailers > 0) object["random_trailers"] = random_trailers;
+        auto writeRange = [&object](const QString& key, const QString& val) {
+            if (val.isEmpty()) return;
+            bool ok = false;
+            int intVal = val.toInt(&ok);
+            if (ok) {
+                if (intVal > 0) object[key] = intVal;
+                return;
+            }
+            static const QRegularExpression rangeRe("^\\d+-\\d+$");
+            if (rangeRe.match(val).hasMatch()) {
+                object[key] = val;
+            }
+        };
+        writeRange("content_padding_addition", content_padding_addition);
+        writeRange("rekey_after_time", rekey_after_time);
+        writeRange("rekey_timeout", rekey_timeout);
+        writeRange("reject_after_time", reject_after_time);
+        writeRange("keepalive_timeout", keepalive_timeout);
+        writeRange("max_handshake_attempts", max_handshake_attempts);
+        if (random_trailers) object["random_trailers"] = true;
         if (disable_cookies) object["disable_cookies"] = true;
         return object;
     }
@@ -480,16 +548,40 @@ namespace Configs {
             header_protection_key = object["hpk"].toVariant().toString();
         }
         if (object.contains("content_padding_addition")) {
-            content_padding_addition = object["content_padding_addition"].toInt();
+            content_padding_addition = AmneziaRangeFromJson(object["content_padding_addition"]);
         } else if (object.contains("cpa")) {
-            content_padding_addition = object["cpa"].toInt();
+            content_padding_addition = AmneziaRangeFromJson(object["cpa"]);
+        }
+        if (object.contains("rekey_after_time")) {
+            rekey_after_time = AmneziaRangeFromJson(object["rekey_after_time"]);
+        }
+        if (object.contains("rekey_timeout")) {
+            rekey_timeout = AmneziaRangeFromJson(object["rekey_timeout"]);
+        }
+        if (object.contains("reject_after_time")) {
+            reject_after_time = AmneziaRangeFromJson(object["reject_after_time"]);
+        }
+        if (object.contains("keepalive_timeout")) {
+            keepalive_timeout = AmneziaRangeFromJson(object["keepalive_timeout"]);
+        }
+        if (object.contains("max_handshake_attempts")) {
+            max_handshake_attempts = AmneziaRangeFromJson(object["max_handshake_attempts"]);
         }
         if (object.contains("random_trailers")) {
-            random_trailers = object["random_trailers"].toInt();
+            const auto& val = object["random_trailers"];
+            random_trailers = val.isBool() ? val.toBool() : (val.toInt() > 0 || val.toString().compare("on", Qt::CaseInsensitive) == 0);
         }
         if (object.contains("disable_cookies")) {
-            disable_cookies = object["disable_cookies"].toBool();
+            const auto& val = object["disable_cookies"];
+            disable_cookies = val.isBool() ? val.toBool() : (val.toInt() > 0 || val.toString().compare("on", Qt::CaseInsensitive) == 0);
         }
+    }
+
+    QString wireguard::AmneziaRangeFromJson(const QJsonValue& value)
+    {
+        if (value.isString()) return value.toString();
+        if (value.isDouble()) return QString::number(value.toInteger());
+        return "";
     }
 
     void wireguard::FixAddress() {

@@ -10,18 +10,18 @@ description: Build, stage, package, run, smoke-test, and publish the AmneThron/T
 - Repository: `D:\Projects\Git\AmneThron`
 - Runnable/staging directory: `D:\Projects\Git\AmneThron\deployment\windows-amd64`
 - Do not use repo-local `build-local`; build out-of-tree under `%LOCALAPPDATA%\CodexBuild\AmneThron-win64`.
-- Launch only `deployment\windows-amd64\Throne.exe`.
+- Launch only `deployment\windows-amd64\Throne.exe` — by full path (`Start-Process`). Never computer-use `open_application "Throne"`: the name resolves to the installed `C:\Program Files\Throne` with its own TUN/system-proxy settings ([L-20261018-1](references/lessons.md)).
+- Read Throne's state (windows, dialogs, log) via PowerShell/UI Automation, not screenshots: computer-use hides every non-allowlisted window, the Claude app included ([L-20261018-1](references/lessons.md)).
 - Do not enable TUN or system proxy unless the user explicitly asks.
 - Treat `deployment\windows-amd64\ThroneCore.exe` as required runtime input; if it is missing, stop and report that the runtime staging folder is incomplete.
 
 ## Default Completion Policy
 
-- Treat a successful portable/staging build as an intermediate result, not completion, after a releasable AmneThron source change.
-- When no user-only verification is required, continue automatically through installer build, artifact verification, source/version commit, push, and GitHub Release publication. Do not stop to request confirmation between these stages.
-- Require user verification only when the result depends on visual, interactive, network, or environment-specific evidence that cannot be checked safely with the available tools, or when the user explicitly requests a review checkpoint.
-- If user verification is required, state the exact check before building the installer. After the user confirms it, resume the installer and publication workflow without asking again.
-- Stop after a portable build only when the user explicitly requests a local/staging/preview build or explicitly says not to publish.
+- For bug fixes, connection debugging, and protocol additions, stop at the portable/staging build (`deployment\windows-amd64\`), run the smoke test, and wait for the user to verify functionality before building an installer.
+- Do not run `build-installer.ps1`, bump `VERSION.txt`, or publish GitHub Releases until the user confirms the fix works or explicitly requests an installer/release build.
+- When an installer or release is explicitly requested, or after user confirmation, proceed through installer build, artifact verification, commit, push, and release publication.
 - При отправке анонсов в Telegram через UI/CDP автоматизацию проверять очистку поля ввода и выдерживать паузу до рендера бабла, не допуская повторной слепой отправки ([L-20260930-1](references/lessons.md)).
+- Не запускать сборку инсталлятора повторно до подтверждения работы исправлений пользователем ([L-20261017-1](references/lessons.md)).
 
 
 ## Failure Learning Rule

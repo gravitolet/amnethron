@@ -808,8 +808,17 @@ void MainWindow::autoSpeedTestAndSwitch() {
     auto profileIDs = group->AutoSwitchProfiles();
     if (profileIDs.isEmpty()) return;
 
+    QList<int> validProfileIDs;
+    for (int id : profileIDs) {
+        auto prof = Configs::dataManager->profilesRepo->GetProfile(id);
+        if (prof != nullptr && !prof->is_broken) {
+            validProfileIDs.append(id);
+        }
+    }
+    if (validProfileIDs.isEmpty()) return;
+
     MW_show_log(tr("Auto speed test started for group: %1").arg(group->name));
-    speedtest_current_group(profileIDs, false, [this] { autoSwitchBySpeed(); }, true);
+    speedtest_current_group(validProfileIDs, false, [this] { autoSwitchBySpeed(); }, true);
 }
 
 void MainWindow::autoSwitchBySpeed() {
@@ -1195,6 +1204,15 @@ void MainWindow::checkCurrentProfileTraffic() {
     if (Configs::dataManager->settingsRepo->prepare_exit) return;
     if (running == nullptr) return;
     if (!core_process || core_process->state() != QProcess::Running) return;
+    // Neither TUN nor system proxy: the profile idles by the user's choice,
+    // so there is no traffic to vouch for — never judge the server then.
+    if (!Configs::dataManager->settingsRepo->spmode_vpn && !Configs::dataManager->settingsRepo->spmode_system_proxy) return;
+    // A profile (re)start or stop is in flight (e.g. toggling TUN / system
+    // proxy restarts it): the core is reloading, so a failed probe means nothing.
+    if (!mu_starting.tryLock()) return;
+    mu_starting.unlock();
+    if (!mu_stopping.tryLock()) return;
+    mu_stopping.unlock();
 
     bool expected = false;
     if (!trafficWatchdogRunning.compare_exchange_strong(expected, true)) {
@@ -1242,9 +1260,23 @@ void MainWindow::checkCurrentProfileTraffic() {
         }
 
         if (running == currentProfile && !Configs::dataManager->settingsRepo->prepare_exit) {
+            if (trafficWatchdogProfileId != currentProfile->id) {
+                trafficWatchdogProfileId = currentProfile->id;
+                trafficWatchdogFailures = 0;
+            }
             if (!anySuccess) {
-                markProfileBrokenAndSwitch(currentProfile, lastError.isEmpty() ? "Foreign traffic check failed (Google/YouTube/Cloudflare unreachable)" : lastError);
+                trafficWatchdogFailures++;
+                const QString reason = lastError.isEmpty() ? "Foreign traffic check failed (Google/YouTube/Cloudflare unreachable)" : lastError;
+                if (trafficWatchdogFailures < kTrafficWatchdogFailLimit) {
+                    MW_show_log("[Warn] " + tr("Traffic check failed for %1 (%2/%3): %4")
+                        .arg(currentProfile->outbound->DisplayTypeAndName())
+                        .arg(trafficWatchdogFailures).arg(kTrafficWatchdogFailLimit).arg(reason));
+                } else {
+                    trafficWatchdogFailures = 0;
+                    markProfileBrokenAndSwitch(currentProfile, reason);
+                }
             } else {
+                trafficWatchdogFailures = 0;
                 if (currentProfile->is_broken) {
                     currentProfile->is_broken = false;
                     if (successfulLatency > 0) currentProfile->latency = successfulLatency;

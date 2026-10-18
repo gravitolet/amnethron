@@ -355,6 +355,11 @@ private:
 
     QTimer* TM_traffic_watchdog = nullptr;
     std::atomic<bool> trafficWatchdogRunning = false;
+    // Consecutive failed watchdog rounds for trafficWatchdogProfileId; a server
+    // is marked broken only after kTrafficWatchdogFailLimit rounds in a row.
+    static constexpr int kTrafficWatchdogFailLimit = 3;
+    int trafficWatchdogFailures = 0;
+    int trafficWatchdogProfileId = -1;
     void checkCurrentProfileTraffic();
     void markProfileBrokenAndSwitch(const std::shared_ptr<Configs::Profile>& profile, const QString& reason);
 

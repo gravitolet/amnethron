@@ -420,7 +420,9 @@ namespace API {
         libcore::EmptyReq request;
         libcore::ListConnectionsResp reply;
         std::vector<uint8_t> resp;
-        auto status = channel->Call("ListConnections", spb::pb::serialize<std::string>(request), resp);
+        // ThroneCore from upstream 1.3.2 only knows "QueryConnections"; its
+        // reply field 1 ("active") is wire-compatible with ListConnectionsResp.
+        auto status = channel->Call("QueryConnections", spb::pb::serialize<std::string>(request), resp);
 
         if (status == CALL_OK && tryDeserialize(resp, reply)) {
             return reply;

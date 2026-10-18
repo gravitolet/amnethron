@@ -7,17 +7,17 @@ Part of the `build-throne-win64` skill. Level: project.
 Build the Windows x64 installer only after the staged app build is healthy:
 
 ```powershell
-& "$env:USERPROFILE\.codex\skills\build-throne-win64\scripts\build-installer.ps1" -StopExisting
+& "D:\Projects\Git\AmneThron\.codex\skills\build-throne-win64\scripts\build-installer.ps1" -StopExisting
 ```
 
 Useful options:
 
 ```powershell
 # Clean the external CMake cache before compiling and packaging.
-& "$env:USERPROFILE\.codex\skills\build-throne-win64\scripts\build-installer.ps1" -Clean -StopExisting
+& "D:\Projects\Git\AmneThron\.codex\skills\build-throne-win64\scripts\build-installer.ps1" -Clean -StopExisting
 
 # Bump a different version component.
-& "$env:USERPROFILE\.codex\skills\build-throne-win64\scripts\build-installer.ps1" -Increment Minor -StopExisting
+& "D:\Projects\Git\AmneThron\.codex\skills\build-throne-win64\scripts\build-installer.ps1" -Increment Minor -StopExisting
 ```
 
 The installer script:
@@ -38,7 +38,7 @@ After a successful build, always publish the installer and its Russian release d
 4. Publish with the bundled wrapper:
 
 ```powershell
-& "$env:USERPROFILE\.codex\skills\build-throne-win64\scripts\publish-github-release.ps1" `
+& "D:\Projects\Git\AmneThron\.codex\skills\build-throne-win64\scripts\publish-github-release.ps1" `
   -ReleaseNotesPath 'D:\Projects\Git\AmneThron\deployment\installer\release-notes-<version>.md'
 ```
 

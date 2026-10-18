@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Throne Win64"
+  short_description: "Build and publish AmneThron for Windows x64"
+  default_prompt: "Use $build-throne-win64 to build, verify, and publish AmneThron for Windows x64."

@@ -336,6 +336,11 @@ namespace Subscription {
         appendLine("I5", pickString(protocolFirst, {"I5", "i5"}));
         appendLine("HeaderProtectionKey", pickString(protocolFirst, {"HeaderProtectionKey", "header_protection_key", "hpk", "Hpk"}));
         appendLine("ContentPaddingAddition", pickString(protocolFirst, {"ContentPaddingAddition", "content_padding_addition", "cpa", "Cpa"}));
+        appendLine("RekeyAfterTime", pickString(protocolFirst, {"RekeyAfterTime", "rekey_after_time"}));
+        appendLine("RekeyTimeout", pickString(protocolFirst, {"RekeyTimeout", "rekey_timeout"}));
+        appendLine("RejectAfterTime", pickString(protocolFirst, {"RejectAfterTime", "reject_after_time"}));
+        appendLine("KeepaliveTimeout", pickString(protocolFirst, {"KeepaliveTimeout", "keepalive_timeout"}));
+        appendLine("MaxHandshakeAttempts", pickString(protocolFirst, {"MaxHandshakeAttempts", "max_handshake_attempts"}));
         appendLine("RandomTrailers", pickString(protocolFirst, {"RandomTrailers", "random_trailers"}));
         appendLine("DisableCookies", pickString(protocolFirst, {"DisableCookies", "disable_cookies"}));
 
@@ -387,8 +392,20 @@ namespace Subscription {
         setString(wireguard->i4, {"I4", "i4"});
         setString(wireguard->i5, {"I5", "i5"});
         setString(wireguard->header_protection_key, {"HeaderProtectionKey", "header_protection_key", "hpk", "Hpk"});
-        setInt(wireguard->content_padding_addition, {"ContentPaddingAddition", "content_padding_addition", "cpa", "Cpa"});
-        setInt(wireguard->random_trailers, {"RandomTrailers", "random_trailers"});
+        setString(wireguard->content_padding_addition, {"ContentPaddingAddition", "content_padding_addition", "cpa", "Cpa"});
+        setString(wireguard->rekey_after_time, {"RekeyAfterTime", "rekey_after_time"});
+        setString(wireguard->rekey_timeout, {"RekeyTimeout", "rekey_timeout"});
+        setString(wireguard->reject_after_time, {"RejectAfterTime", "reject_after_time"});
+        setString(wireguard->keepalive_timeout, {"KeepaliveTimeout", "keepalive_timeout"});
+        setString(wireguard->max_handshake_attempts, {"MaxHandshakeAttempts", "max_handshake_attempts"});
+        if (pickBool(objects, {"RandomTrailers", "random_trailers"}, false)) {
+            wireguard->random_trailers = true;
+        } else {
+            auto rtStr = pickString(objects, {"RandomTrailers", "random_trailers"}).trimmed();
+            if (rtStr == "1" || rtStr.compare("on", Qt::CaseInsensitive) == 0 || rtStr.compare("true", Qt::CaseInsensitive) == 0) {
+                wireguard->random_trailers = true;
+            }
+        }
         if (pickBool(objects, {"DisableCookies", "disable_cookies"}, false)) {
             wireguard->disable_cookies = true;
         }

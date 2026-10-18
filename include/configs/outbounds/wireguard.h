@@ -12,7 +12,7 @@ namespace Configs
         QString public_key;
         QString pre_shared_key;
         QList<int> reserved;
-        int persistent_keepalive = 0;
+        QString persistent_keepalive;
         QStringList allowed_ips;
 
         // baseConfig overrides
@@ -21,6 +21,8 @@ namespace Configs
         QString ExportToLink() override;
         QJsonObject ExportToJson() override;
         BuildResult Build() override;
+
+        void WriteKeepalive(QJsonObject& object) const;
     };
 
     class wireguard : public outbound
@@ -58,8 +60,13 @@ namespace Configs
 
         // AmneziaWG v3 options
         QString header_protection_key;
-        int content_padding_addition = 0;
-        int random_trailers = 0;
+        QString content_padding_addition;
+        QString rekey_after_time;
+        QString rekey_timeout;
+        QString reject_after_time;
+        QString keepalive_timeout;
+        QString max_handshake_attempts;
+        bool random_trailers = false;
         bool disable_cookies = false;
 
         // baseConfig overrides
@@ -80,6 +87,7 @@ namespace Configs
         private:
         QJsonObject AmneziaToJson();
         void AmneziaFromJson(const QJsonObject& object);
+        static QString AmneziaRangeFromJson(const QJsonValue& value);
         void FixAddress();
     };
 }

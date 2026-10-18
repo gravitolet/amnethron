@@ -88,6 +88,12 @@ namespace Configs
                                           ms_a = profA->outbound->DisplayAddress();
                                           ms_b = profB->outbound->DisplayAddress();
                                       } else if (sortAction.method == GroupSortMethod::ByTestResult) {
+                                          if (profA->is_broken != profB->is_broken) {
+                                              return !profA->is_broken;
+                                          }
+                                          if (profA->is_broken) {
+                                              return false;
+                                          }
                                           if (test_sort_by == testBy::speedProduct) {
                                               const long double productA = get_speed_product_for_sort(profA);
                                               const long double productB = get_speed_product_for_sort(profB);
