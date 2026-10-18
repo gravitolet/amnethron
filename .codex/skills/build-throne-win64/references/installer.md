@@ -30,7 +30,7 @@ The installer script:
 - Outputs `deployment\installer\ThroneSetup-<version>.exe` and removes unversioned `ThroneSetup.exe`.
 - Writes the next version to `VERSION.txt` only after the final versioned installer exists and is non-empty. A failed compile, `makensis` run, or final artifact copy must leave `VERSION.txt` unchanged.
 
-After a successful build, always publish the installer and its Russian release description to `gravitolet/amnethron` GitHub Releases. Do not copy release artifacts or descriptions to Yandex Disk.
+After a successful build, always publish the installer and its Russian release description to `gravitolet/amnethron` GitHub Releases, and copy the installer `ThroneSetup-<version>.exe` to the Yandex Disk folder `D:\YandexDisk\Install\Net\vpn\AmneThron` (owner's request 2026-10-18; verify size/hash of the copy). The release description lives in GitHub only.
 
 1. Verify the installer and staged runtime.
 2. Commit `VERSION.txt` and all matching source/build-script changes, then push the commit to `origin` so the release tag points to the exact source used for the binary.
