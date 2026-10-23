@@ -92,10 +92,6 @@ RouteItem::RouteItem(QWidget *parent, const std::shared_ptr<Configs::RouteProfil
         }
     }
 
-    for (const auto& item : ruleSetMap) {
-        geo_items.append(QString::fromStdString(item.first));
-    }
-
     ui->route_name->setText(chain->name);
     ui->rule_preview->setReadOnly(true);
     ui->rule_attr_tabs->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
@@ -121,10 +117,7 @@ RouteItem::RouteItem(QWidget *parent, const std::shared_ptr<Configs::RouteProfil
 
     ui->def_out->setCurrentText(Configs::outboundIDToString(chain->defaultOutboundID));
 
-    QStringList ruleItems = {"domain:", "suffix:", "regex:", "keyword:", "ip:", "processName:", "processPath:", "ruleset:"};
-    for (const auto& item : ruleSetMap) {
-        ruleItems.append("ruleset:" + QString::fromStdString(item.first));
-    }
+    const auto ruleItems = ruleSetCompletionItems({"domain:", "suffix:", "regex:", "keyword:", "ip:", "processName:", "processPath:", "ruleset:"});
     simpleDirect = new AutoCompleteTextEdit("", ruleItems, this);
     simpleBlock = new AutoCompleteTextEdit("", ruleItems, this);
     simpleProxy = new AutoCompleteTextEdit("", ruleItems, this);
@@ -382,7 +375,7 @@ QWidget* RouteItem::makeAttributeEditorPage(const QString& attr) {
         }
         case Configs::text: {
             if (attr == QStringLiteral("rule_set")) {
-                auto* ed = new AutoCompleteTextEdit("", geo_items, container);
+                auto* ed = new AutoCompleteTextEdit("", ruleSetNames(), container);
                 ed->setPlainText(rule->get_current_value_string(attr).join('\n'));
                 ed->setMinimumHeight(100);
                 ed->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);

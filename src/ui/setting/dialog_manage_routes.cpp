@@ -143,11 +143,7 @@ DialogManageRoutes::DialogManageRoutes(QWidget *parent) : QDialog(parent), ui(ne
         MessageBoxInfo("What is this?", Configs::Information::HijackInfo);
     });
 
-    QStringList ruleItems = {"domain:", "suffix:", "regex:"};
-    for (const auto& item : ruleSetMap) {
-        ruleItems.append("ruleset:" + QString::fromStdString(item.first));
-    }
-    rule_editor = new AutoCompleteTextEdit("", ruleItems, this);
+    rule_editor = new AutoCompleteTextEdit("", ruleSetCompletionItems({"domain:", "suffix:", "regex:"}), this);
     ui->hijack_box->layout()->replaceWidget(ui->dnshijack_rules, rule_editor);
     rule_editor->setPlainText(Configs::dataManager->settingsRepo->dns_server_rules.join("\n"));
     ui->dnshijack_rules->hide();

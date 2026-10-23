@@ -55,8 +55,10 @@
 #include <QApplication>
 #include <QCompleter>
 #include <QKeyEvent>
+#include <QListView>
 #include <QModelIndex>
 #include <QScrollBar>
+#include <QStyle>
 #include <QStringListModel>
 #include <QToolTip>
 #include <QtDebug>
@@ -67,6 +69,10 @@ namespace Qv2ray::ui::widgets {
         this->setLineWrapMode(QPlainTextEdit::NoWrap);
         c = new QCompleter(this);
         c->setModel(new QStringListModel(sourceStrings, c));
+        // The rule-set catalog has thousands of one-line entries; without uniform sizes
+        // the popup measures every row each time it is shown.
+        if (auto *view = qobject_cast<QListView *>(c->popup()))
+            view->setUniformItemSizes(true);
         c->setWidget(this);
         c->setCompletionMode(QCompleter::PopupCompletion);
         c->setCaseSensitivity(Qt::CaseInsensitive);
@@ -97,20 +103,42 @@ namespace Qv2ray::ui::widgets {
         return tc.selectedText();
     }
 
+    void AutoCompleteTextEdit::updateCompletionPrefix(const QString &text) {
+        if (text == c->completionPrefix())
+            return;
+        c->setCompletionPrefix(text);
+        c->popup()->setCurrentIndex(c->completionModel()->index(0, 0));
+    }
+
+    int AutoCompleteTextEdit::completionPopupWidth() {
+        // Measured once: QAbstractItemView::sizeHintForColumn walks every row on each call.
+        if (popupWidth < 0) {
+            const auto *popup = c->popup();
+            const auto metrics = popup->fontMetrics();
+            int widest = 0;
+            for (const auto &item : static_cast<QStringListModel *>(c->model())->stringList())
+                widest = qMax(widest, metrics.horizontalAdvance(item));
+            const int itemMargin = 2 * (popup->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, popup) + 1);
+            popupWidth = widest + itemMargin + 2 * popup->frameWidth();
+        }
+        return popupWidth + c->popup()->verticalScrollBar()->sizeHint().width();
+    }
+
+    void AutoCompleteTextEdit::showCompletionPopup() {
+        QRect cr = cursorRect();
+        cr.setWidth(completionPopupWidth());
+        c->complete(cr); // popup it up!
+    }
+
     void AutoCompleteTextEdit::focusInEvent(QFocusEvent *e) {
         if (c)
             c->setWidget(this);
 
-        if (lineUnderCursor().isEmpty()) {
-            c->setCompletionPrefix("");
-            c->popup()->setCurrentIndex(c->completionModel()->index(0, 0));
-        } else if (auto word = lineUnderCursor(); word != c->completionPrefix()) {
-            c->setCompletionPrefix(word);
-            c->popup()->setCurrentIndex(c->completionModel()->index(0, 0));
+        // Focus comes back here when the popup closes; reopening it would swallow the next click.
+        if (e->reason() != Qt::PopupFocusReason) {
+            updateCompletionPrefix(lineUnderCursor());
+            showCompletionPopup();
         }
-        QRect cr = cursorRect();
-        cr.setWidth(c->popup()->sizeHintForColumn(0) + c->popup()->verticalScrollBar()->sizeHint().width());
-        c->complete(cr); // popup it up!
 
         QPlainTextEdit::focusInEvent(e);
     }
@@ -151,11 +179,8 @@ namespace Qv2ray::ui::widgets {
             return;
 
         if (lineUnderCursor().isEmpty()) {
-            c->setCompletionPrefix("");
-            c->popup()->setCurrentIndex(c->completionModel()->index(0, 0));
-            QRect cr = cursorRect();
-            cr.setWidth(c->popup()->sizeHintForColumn(0) + c->popup()->verticalScrollBar()->sizeHint().width());
-            c->complete(cr); // popup it up!
+            updateCompletionPrefix(QString());
+            showCompletionPopup();
             return;
         }
 
@@ -168,13 +193,8 @@ namespace Qv2ray::ui::widgets {
             return;
         }
 
-        if (auto word = lineUnderCursor(); word != c->completionPrefix()) {
-            c->setCompletionPrefix(word);
-            c->popup()->setCurrentIndex(c->completionModel()->index(0, 0));
-        }
+        updateCompletionPrefix(lineUnderCursor());
 
-        QRect cr = cursorRect();
-        cr.setWidth(c->popup()->sizeHintForColumn(0) + c->popup()->verticalScrollBar()->sizeHint().width());
-        c->complete(cr); // popup it up!
+        showCompletionPopup();
     }
 } // namespace Qv2ray::ui::widgets

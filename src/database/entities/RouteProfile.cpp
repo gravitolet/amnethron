@@ -192,41 +192,76 @@ namespace Configs {
         return res;
     }
 
+    namespace {
+        std::shared_ptr<RouteRule> makeRouteRule(const QString& name, const QString& action, int outboundID = directID) {
+            auto rule = std::make_shared<RouteRule>();
+            rule->name = name;
+            rule->action = action;
+            rule->outboundID = outboundID;
+            return rule;
+        }
+
+        std::shared_ptr<RouteRule> makeSimpleRule(ruleType type, int outboundID) {
+            auto rule = makeRouteRule(ruleTypeToString(type), "route", outboundID);
+            rule->type = type;
+            return rule;
+        }
+
+        // Rules every built-in profile starts with.
+        void addBaseRules(RouteProfile& chain) {
+            auto rejectIPv6 = makeRouteRule("Reject IP V6", "reject");
+            rejectIPv6->ip_version = "6";
+            chain.Rules << rejectIPv6;
+
+            auto dnsRule = makeRouteRule("Hijack DNS", "hijack-dns");
+            dnsRule->protocol = "dns";
+            chain.Rules << dnsRule;
+        }
+    }
+
     std::shared_ptr<RouteProfile> RouteProfile::GetDefaultChain() {
         auto defaultChain = std::make_shared<RouteProfile>();
         defaultChain->name = "Default";
-        auto defaultRule = std::make_shared<RouteRule>();
-        defaultRule->name = "Route DNS";
-        defaultRule->action = "hijack-dns";
-        defaultRule->protocol = "dns";
-        defaultChain->Rules << defaultRule;
+        addBaseRules(*defaultChain);
         return defaultChain;
     }
 
+    // Mirrors the owner's working setup (2026-10-23): Google and YouTube always go through the proxy,
+    // even when their servers sit in Russian networks; Russian sites and services go direct.
     std::shared_ptr<RouteProfile> RouteProfile::GetBypassRussiaChain() {
         auto chain = std::make_shared<RouteProfile>();
         chain->name = "Bypass Russia";
         chain->defaultOutboundID = proxyID;
+        addBaseRules(*chain);
 
-        auto dnsRule = std::make_shared<RouteRule>();
-        dnsRule->name = "Route DNS";
-        dnsRule->action = "hijack-dns";
-        dnsRule->protocol = "dns";
-        chain->Rules << dnsRule;
-
-        auto privateRule = std::make_shared<RouteRule>();
-        privateRule->name = "Bypass Private IP";
-        privateRule->action = "route";
-        privateRule->outboundID = directID;
+        auto privateRule = makeRouteRule("Direct Private ip", "route");
         privateRule->ip_is_private = true;
         chain->Rules << privateRule;
 
-        auto ruRule = std::make_shared<RouteRule>();
-        ruRule->name = "Bypass Russia";
-        ruRule->action = "route";
-        ruRule->outboundID = directID;
+        auto simpleProxy = makeSimpleRule(simpleAddressProxy, proxyID);
+        simpleProxy->domain_suffix = {"justhost.ru"};
+        chain->Rules << simpleProxy;
+
+        auto googleRule = makeRouteRule("Google via proxy", "route", proxyID);
+        googleRule->rule_set = {"geosite-google", "geosite-youtube", "geosite-google-play", "geosite-google-gemini",
+                                "geosite-google-deepmind", "geosite-google-scholar", "geoip-google"};
+        googleRule->domain_suffix = {"google.com", "googleapis.com", "gstatic.com", "googleusercontent.com", "googlevideo.com",
+                                     "ggpht.com", "gvt1.com", "gvt2.com", "goo.gl", "gmail.com", "android.com", "withgoogle.com",
+                                     "googlesyndication.com", "googleadservices.com", "doubleclick.net", "youtube.com", "youtu.be",
+                                     "ytimg.com", "youtube-nocookie.com"};
+        googleRule->domain_regex = {QStringLiteral(R"re((^|\.)google\.[a-z.]{2,6}$)re")};
+        chain->Rules << googleRule;
+
+        auto ruRule = makeRouteRule("Direct geoip RU", "route");
         ruRule->rule_set = {"geoip-ru", "geosite-ru", "geosite-category-ru", "geosite-ru-available-only-inside"};
         chain->Rules << ruRule;
+
+        auto simpleBypass = makeSimpleRule(simpleAddressBypass, directID);
+        simpleBypass->domain = {"cardlink.link"};
+        simpleBypass->domain_suffix = {"yandex.net", "yastatic.net", "mycdn.me", "userapi.com", "vkvideo.ru", "vkvideo.net"};
+        simpleBypass->rule_set = {"geosite-yandex", "geosite-kinopoisk", "geosite-vk", "geosite-rutube", "geosite-okko",
+                                  "geosite-mailru", "geosite-category-media-ru"};
+        chain->Rules << simpleBypass;
 
         return chain;
     }

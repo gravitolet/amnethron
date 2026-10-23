@@ -75,9 +75,13 @@ namespace Qv2ray {
             private:
                 QString lineUnderCursor() const;
                 QString wordUnderCursor() const;
+                void updateCompletionPrefix(const QString &text);
+                int completionPopupWidth();
+                void showCompletionPopup();
 
                 QString prefix;
                 QCompleter *c = nullptr;
+                int popupWidth = -1;
             };
         } // namespace widgets
     }     // namespace ui

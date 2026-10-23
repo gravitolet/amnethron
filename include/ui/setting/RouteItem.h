@@ -29,7 +29,6 @@ private:
 
     int lastNum = 0;
 
-    QStringList geo_items;
 
     QShortcut* deleteShortcut;
 
