@@ -13,6 +13,7 @@ description: Build, stage, package, run, smoke-test, and publish the AmneThron/T
 - Launch only `deployment\windows-amd64\Throne.exe` — by full path (`Start-Process`). Never computer-use `open_application "Throne"`: the name resolves to the installed `C:\Program Files\Throne` with its own TUN/system-proxy settings ([L-20261018-1](references/lessons.md)).
 - Read Throne's state (windows, dialogs, log) via PowerShell/UI Automation, not screenshots: computer-use hides every non-allowlisted window, the Claude app included ([L-20261018-1](references/lessons.md)).
 - Do not enable TUN or system proxy unless the user explicitly asks.
+- Никогда не устанавливать собранный инсталлятор и не добавлять Throne (ни установленный, ни staging) в автозагрузку — это делает только владелец. Первый запуск копии со свежим `config` сам создаёт задачу `Throne AutoRun <hash>` (`mainwindow.cpp`, `autorun_initialized`): после смоук-запуска staging проверить `Get-ScheduledTask | ? TaskName -match 'Throne'` и, если появилась задача на `deployment\windows-amd64`, сообщить владельцу ([L-20261024-1](references/lessons.md)).
 - Treat `deployment\windows-amd64\ThroneCore.exe` as required runtime input; if it is missing, stop and report that the runtime staging folder is incomplete.
 
 ## Default Completion Policy
