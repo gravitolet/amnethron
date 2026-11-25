@@ -22,7 +22,7 @@ description: Build, stage, package, run, smoke-test, and publish the AmneThron/T
 - Do not run `build-installer.ps1`, bump `VERSION.txt`, or publish GitHub Releases until the user confirms the fix works or explicitly requests an installer/release build.
 - When an installer or release is explicitly requested, or after user confirmation, proceed through installer build, artifact verification, commit, push, and release publication.
 - При отправке анонсов в Telegram через UI/CDP автоматизацию проверять очистку поля ввода и выдерживать паузу до рендера бабла, не допуская повторной слепой отправки ([L-20260930-1](references/lessons.md)).
-- Анонс релиза — в Telegram «Доступ к GPT» → тема «АмнеТрон», через Chrome CDP (навык `vk-cdp-automation`); сначала использовать уже открытую вкладку Telegram Web, новую открывать только если её нет (L-20261018-2 там).
+- Анонс релиза — в Telegram «Доступ к GPT» → тема General (отдельной темы «АмнеТрон» нет; анонсы 0.1.13–0.1.15 там, решение владельца 2026-11-26), через Chrome CDP (навык `vk-cdp-automation`); сначала использовать уже открытую вкладку Telegram Web, новую открывать только если её нет (L-20261018-2 там).
 - Не запускать сборку инсталлятора повторно до подтверждения работы исправлений пользователем ([L-20261017-1](references/lessons.md)).
 
 
