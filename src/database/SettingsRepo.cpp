@@ -278,6 +278,16 @@ namespace Configs {
         return user_agent;
     }
 
+    // True if the inbound listens on all interfaces ("::", "0.0.0.0" or empty)
+    bool SettingsRepo::IsInboundWildcard() const {
+        return inbound_address == "::" || inbound_address == "0.0.0.0" || inbound_address.isEmpty();
+    }
+
+    // Address local clients use to reach our own inbound (loopback for wildcard binds)
+    QString SettingsRepo::InboundConnectHost() const {
+        return IsInboundWildcard() ? "127.0.0.1" : inbound_address;
+    }
+
     bool SettingsRepo::Save() {
         saveAllSettings();
         return true;

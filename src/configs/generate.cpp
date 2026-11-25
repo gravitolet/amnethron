@@ -901,10 +901,16 @@ namespace Configs {
             // already encodes whether anything follows, so honoring it
             // unconditionally when a bridge is needed wires the loopback
             // protection up for single-hop xray route outbounds too.
-            if (!nextTag.isEmpty() && (link || bridgeConfig.needed)) object["proxySettings"] = QJsonObject{
-                {"tag", nextTag},
-                {"transportLayer", true}
-            };
+            // Xray removed outbound "proxySettings"; chaining goes through
+            // streamSettings.sockopt.dialerProxy (transport-layer, as the old
+            // transportLayer=true did). Merge into any sockopt set above.
+            if (!nextTag.isEmpty() && (link || bridgeConfig.needed)) {
+                auto streamSettings = object["streamSettings"].toObject();
+                auto sockopt = streamSettings["sockopt"].toObject();
+                sockopt["dialerProxy"] = nextTag;
+                streamSettings["sockopt"] = sockopt;
+                object["streamSettings"] = streamSettings;
+            }
             ctx->xrayOutbounds.append(object);
         }
         if (bridgeConfig.needed) {

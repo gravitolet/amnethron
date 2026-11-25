@@ -248,6 +248,11 @@ namespace Configs {
         void UpdateStartedId(int id);
 
         [[nodiscard]] QString GetUserAgent(bool isDefault = false) const;
+
+        // True if the inbound listens on all interfaces ("::", "0.0.0.0" or empty)
+        [[nodiscard]] bool IsInboundWildcard() const;
+        // Address local clients use to reach our own inbound (loopback for wildcard binds)
+        [[nodiscard]] QString InboundConnectHost() const;
         
         // Extra Core Paths methods
         [[nodiscard]] QStringList GetExtraCorePaths() const;
